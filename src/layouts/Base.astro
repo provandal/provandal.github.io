@@ -27,6 +27,7 @@ const ogImageURL = new URL('/og-image.jpg', Astro.site);
     <meta name="generator" content={Astro.generator} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="canonical" href={canonicalURL} />
+    <link rel="alternate" type="application/rss+xml" title="provandal" href="/rss.xml" />
 
     <title>{title}</title>
     <meta name="description" content={description} />
@@ -44,6 +45,8 @@ const ogImageURL = new URL('/og-image.jpg', Astro.site);
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@provandal1" />
+    <meta name="twitter:creator" content="@provandal1" />
     <meta name="twitter:url" content={canonicalURL} />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
