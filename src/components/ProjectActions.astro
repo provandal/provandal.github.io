@@ -1,0 +1,45 @@
+---
+import type { Project } from '../content/projects';
+
+interface Props {
+  project: Project;
+  /** "compact" for landing page cards, "full" for the projects listing */
+  variant?: 'compact' | 'full';
+}
+
+const { project, variant = 'compact' } = Astro.props;
+
+interface Action {
+  label: string;
+  href: string;
+  external: boolean;
+}
+
+const actions: Action[] = [];
+if (project.liveUrl) actions.push({ label: 'Live demo', href: project.liveUrl, external: true });
+if (project.repoUrl) actions.push({ label: 'Source', href: project.repoUrl, external: true });
+if (project.buildLogUrl) actions.push({ label: 'Build log', href: project.buildLogUrl, external: false });
+
+const baseLink = 'font-mono text-xs link-underline transition-colors';
+const compactLink = `${baseLink} text-ink-300 hover:text-signal`;
+const fullLink = `${baseLink} text-ink-200 hover:text-signal`;
+const linkClass = variant === 'compact' ? compactLink : fullLink;
+---
+{actions.length > 0 ? (
+  <div class:list={['flex flex-wrap items-center', variant === 'compact' ? 'gap-x-4 gap-y-2' : 'gap-x-5 gap-y-2']}>
+    {actions.map((a, i) => (
+      <>
+        {i > 0 && <span class="font-mono text-xs text-ink-700">/</span>}
+        <a
+          href={a.href}
+          class={linkClass}
+          {...a.external ? { target: '_blank', rel: 'noopener noreferrer' } : {}}
+        >
+          {a.label} &rarr;
+        </a>
+      </>
+    ))}
+  </div>
+) : project.status ? (
+  <span class="font-mono text-xs text-ink-500 italic">{project.status}</span>
+) : null}

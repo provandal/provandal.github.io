@@ -1,0 +1,66 @@
+---
+import Base from '../../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+
+const posts = (await getCollection('writing', ({ data }) => !data.draft)).sort(
+  (a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf()
+);
+
+const fmt = (d: Date) =>
+  d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+
+// Group posts by year
+const byYear = posts.reduce<Record<string, typeof posts>>((acc, post) => {
+  const y = post.data.pubDate.getFullYear().toString();
+  (acc[y] ||= []).push(post);
+  return acc;
+}, {});
+const years = Object.keys(byYear).sort((a, b) => Number(b) - Number(a));
+---
+<Base title="Writing — provandal">
+  <header class="pt-4 pb-12">
+    <p class="eyebrow mb-4">Writing</p>
+    <h1 class="text-4xl md:text-5xl mb-6 text-balance font-normal">
+      Notes from the bench.
+    </h1>
+    <p class="text-ink-300 text-lg text-pretty leading-relaxed">
+      Lessons learned, observations and occasional essays about
+      infrastructure, agentic systems, and the craft of making hard things
+      understandable.
+    </p>
+  </header>
+
+  {posts.length === 0 ? (
+    <p class="text-ink-500 font-mono text-sm">No posts yet. First one shipping soon.</p>
+  ) : (
+    <div class="space-y-12">
+      {years.map((year) => (
+        <section>
+          <h2 class="font-mono text-sm text-ink-500 mb-6 pb-3 border-b rule tracking-wider">
+            {year}
+          </h2>
+          <ul class="divide-y divide-ink-700">
+            {byYear[year].map((post) => (
+              <li>
+                <a
+                  href={`/writing/${post.slug}/`}
+                  class="group flex flex-col md:flex-row md:items-baseline md:gap-8 py-5 hover:bg-ink-800/40 -mx-4 px-4 transition-colors rounded"
+                >
+                  <time class="font-mono text-xs text-ink-500 md:w-28 shrink-0">
+                    {fmt(post.data.pubDate)}
+                  </time>
+                  <div class="flex-1">
+                    <h3 class="font-display text-xl md:text-2xl text-ink-100 group-hover:text-signal transition-colors">
+                      {post.data.title}
+                    </h3>
+                    <p class="text-ink-400 text-sm mt-1 text-pretty">{post.data.description}</p>
+                  </div>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  )}
+</Base>

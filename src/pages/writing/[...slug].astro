@@ -1,0 +1,57 @@
+---
+import Base from '../../layouts/Base.astro';
+import { getCollection, type CollectionEntry } from 'astro:content';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('writing', ({ data }) => !data.draft);
+  return posts.map((post) => ({
+    params: { slug: post.slug },
+    props: { post },
+  }));
+}
+
+interface Props {
+  post: CollectionEntry<'writing'>;
+}
+
+const { post } = Astro.props;
+const { Content } = await post.render();
+
+const fmt = (d: Date) =>
+  d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+---
+<Base title={`${post.data.title} — provandal`} description={post.data.description}>
+  <article>
+    <header class="pt-4 pb-8 mb-10 border-b rule">
+      <p class="eyebrow mb-4">
+        {fmt(post.data.pubDate)}
+        {post.data.updatedDate && (
+          <span class="text-ink-600"> · updated {fmt(post.data.updatedDate)}</span>
+        )}
+      </p>
+      <h1 class="text-4xl md:text-5xl mb-4 text-balance font-normal leading-[1.1]">
+        {post.data.title}
+      </h1>
+      <p class="text-ink-300 text-lg text-pretty leading-relaxed">{post.data.description}</p>
+      {post.data.tags.length > 0 && (
+        <div class="mt-5 flex flex-wrap gap-2">
+          {post.data.tags.map((t) => (
+            <span class="font-mono text-[11px] text-ink-500 border border-ink-700 rounded px-2 py-0.5">
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
+    </header>
+
+    <div class="prose-provandal">
+      <Content />
+    </div>
+
+    <footer class="mt-16 pt-8 border-t rule">
+      <a href="/writing/" class="font-mono text-sm link-underline text-ink-400">
+        &larr; all writing
+      </a>
+    </footer>
+  </article>
+</Base>

@@ -1,0 +1,118 @@
+---
+import Base from '../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+import { projects } from '../content/projects';
+import ProjectActions from '../components/ProjectActions.astro';
+
+const posts = (await getCollection('writing', ({ data }) => !data.draft))
+  .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf())
+  .slice(0, 3);
+
+const featuredProjects = projects.slice(0, 3);
+
+const fmt = (d: Date) =>
+  d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+---
+<Base title="provandal — Erik Smith" wide>
+  <!-- Hero -->
+  <section class="max-w-wide pt-8 pb-20 md:pt-16 md:pb-28">
+    <p class="eyebrow mb-8">Erik Smith · Massachusetts</p>
+    <h1 class="text-5xl md:text-7xl leading-[1.05] text-balance font-normal">
+      Engineer, teacher, and builder of things that make
+      <span class="italic text-signal" style="font-variation-settings: 'opsz' 144, 'SOFT' 100, 'WONK' 1;">complex systems</span>
+      legible.
+    </h1>
+    <p class="mt-8 text-lg md:text-xl text-ink-300 max-w-wide text-pretty leading-relaxed">
+      Twenty-five years of optimizing infrastructure for humans, 
+      now applying those lessons while building agentic AI systems,
+      writing about how they work, and making the hard parts visible through
+      interactive tools.
+    </p>
+    <div class="mt-10 flex items-center gap-6 font-mono text-sm">
+      <a href="/projects/" class="link-underline text-ink-100">See the work</a>
+      <span class="text-ink-700">/</span>
+      <a href="/writing/" class="link-underline text-ink-100">Read recent writing</a>
+    </div>
+  </section>
+
+  <!-- Projects -->
+  <section class="py-16 border-t rule">
+    <div class="flex items-baseline justify-between mb-10">
+      <div>
+        <p class="eyebrow mb-2">Section 01</p>
+        <h2 class="text-3xl md:text-4xl">Selected projects</h2>
+      </div>
+      <a href="/projects/" class="font-mono text-sm link-underline text-ink-400">all &rarr;</a>
+    </div>
+
+    <div class="grid md:grid-cols-3 gap-px bg-ink-700 border rule rounded-lg overflow-hidden">
+      {featuredProjects.map((p) => (
+        <article class="bg-ink-900 p-6 md:p-8 flex flex-col">
+          <p class="eyebrow mb-3">{p.kind}</p>
+          <h3 class="font-display text-2xl text-ink-100 mb-3">
+            {p.name}
+          </h3>
+          <p class="text-ink-400 text-sm leading-relaxed flex-1">{p.summary}</p>
+          <div class="mt-6 pt-4 border-t border-ink-700">
+            <ProjectActions project={p} variant="compact" />
+          </div>
+        </article>
+      ))}
+    </div>
+  </section>
+
+  <!-- Writing -->
+  {posts.length > 0 && (
+    <section class="py-16 border-t rule">
+      <div class="flex items-baseline justify-between mb-10">
+        <div>
+          <p class="eyebrow mb-2">Section 02</p>
+          <h2 class="text-3xl md:text-4xl">Recent writing</h2>
+        </div>
+        <a href="/writing/" class="font-mono text-sm link-underline text-ink-400">all &rarr;</a>
+      </div>
+
+      <ul class="divide-y divide-ink-700 border-y rule">
+        {posts.map((post) => (
+          <li>
+            <a href={`/writing/${post.slug}/`} class="group flex flex-col md:flex-row md:items-baseline md:gap-8 py-6 hover:bg-ink-800/40 -mx-4 px-4 transition-colors">
+              <time class="font-mono text-xs text-ink-500 md:w-28 shrink-0">{fmt(post.data.pubDate)}</time>
+              <div class="flex-1">
+                <h3 class="font-display text-xl text-ink-100 group-hover:text-signal transition-colors">
+                  {post.data.title}
+                </h3>
+                <p class="text-ink-400 text-sm mt-1 text-pretty">{post.data.description}</p>
+              </div>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )}
+
+  <!-- About preview -->
+  <section class="py-16 border-t rule">
+    <div class="md:grid md:grid-cols-3 md:gap-12">
+      <div>
+        <p class="eyebrow mb-2">Section 03</p>
+        <h2 class="text-3xl md:text-4xl">About</h2>
+      </div>
+      <div class="md:col-span-2 mt-6 md:mt-0 space-y-5 text-ink-300 leading-relaxed max-w-prose">
+        <p>
+          I build to understand. Most of what I publish here is a by-product of
+          that: a prototype I needed to see working, a diagram that finally made
+          a concept click, a post written because explaining something to
+          someone else is how I figure out whether I actually know it.
+        </p>
+        <p>
+          By day I'm a Distinguished Engineer at Dell, working on agentic AI
+          systems and the infrastructure they run on. The opinions here are
+          mine.
+        </p>
+        <a href="/about/" class="inline-block font-mono text-sm link-underline text-ink-100">
+          More &rarr;
+        </a>
+      </div>
+    </div>
+  </section>
+</Base>

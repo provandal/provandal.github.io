@@ -1,0 +1,159 @@
+---
+title: "Inference Illustrated: a build log"
+description: "Notes from building an interactive curriculum for storage and networking people learning LLM inference. What went in, what came out, and the rules I would not break."
+pubDate: 2026-04-24
+tags: ["llm-inference", "teaching", "kv-cache", "build-log"]
+---
+
+Inference Illustrated is a guided, interactive curriculum that walks a storage
+or networking professional through the basic elements of LLMs and KV Cache, one stop at a time. 
+
+I started working on it because the existing explanations of LLM inference were either too
+shallow to allow an infrastructure architect to understand all of the implications, or too 
+deep to be correctly interpreted by anyone who did not already read research papers for fun. 
+More specifically, I was having a hard time connecting all of the dots in the "Attention is 
+All You Need" paper. Buoyed by the work I had done on Binary Digit Trainer, I decided to see 
+if there was a better way to develop an intuitive sense for how the Attention mechanism actually 
+works. I hoped this would in turn unlock a clearer understanding of why KV Cache matters so much.   
+
+The hard part turned out to be creating the rules that Claude and I would follow when generating
+content. I've provided some information about our rules below. As I keep working on them I am 
+beginning to realize that the rules might generalize. In other words, the collaboration pattern 
+Claude and I developed for this curriculum, where the AI learns my learning style and produces 
+exactly what I need, would have let me learn faster in every context starting from elementary 
+school. I realize this is a big claim, but it is the reason I am writing the rules down. I want 
+to see if they hold up outside this curriculum.
+
+## The rules
+
+These are in the order we wrote them down, not the order we discovered them.
+
+### No blind cliffs
+
+At no point should the learner encounter a concept they have not been
+given the tools to understand. If a stop depends on something, that
+something is either built earlier in the curriculum or introduced inline
+with enough scaffolding to stand up. We allow ourselves to forward-reference
+("we will return to batching later"), but we do not allow forward-require.
+
+This rule sounds obvious and is violated constantly by real-world
+technical writing. The dominant failure mode is the author assuming that
+because they understand how something connects, the reader does too.
+
+### Correct terms on first use
+
+We do not simplify by lying. If the real name for a thing is
+"key-value cache," we call it that the first time we introduce it,
+even if we have to spend a paragraph explaining why it is called that.
+The alternative, renaming it to something friendlier and then re-teaching
+the real name later, creates a worse problem: the learner leaves
+thinking they know what this thing is called, and discovers they do not
+the first time they read a paper or a GitHub issue about it.
+
+This rule forces tighter writing. Explaining why "key" and "value" are
+named what they are is harder than calling them "query bits" or
+whatever, but it pays off at every subsequent stop.
+
+### Math in animations, not narration
+
+Equations have their place, but that place is almost never in the middle
+of a paragraph of prose. When the learner needs to feel what an attention
+computation does, we show it moving. We do not write "we then compute the
+softmax of the scaled dot product." We show the dot product happening,
+scale it, and apply the softmax, each step rendered.
+
+The narration then gets to do what narration is good at: saying what the
+thing is for, why it is shaped that way, and what goes wrong when you
+break it.
+
+### Why before how
+
+Every stop opens with a motivation. Why does this thing exist? What
+problem are we solving? What breaks if we do not have it? Only after
+that do we get to mechanism.
+
+This is the rule that most changed the feel of the curriculum. It makes
+the stops longer, because motivation is usually where the real insight
+lives, but it means no stop feels like trivia.
+
+## The anchor sentence
+
+Every stop that demonstrates attention uses the same input sentence:
+
+> The server crashed because the storage controller that the technician
+> replaced last week was faulty.
+
+This is deliberate. The sentence has three useful properties. First,
+the grammatical subject ("server") and the actual cause ("storage
+controller") are separated by a long dependency, which is exactly the
+kind of structure attention is supposed to handle well and earlier
+architectures did not. Second, the sentence contains a temporal clause
+("last week") that creates genuine ambiguity about what is being referred
+to in the main clause. Third, the vocabulary is native to our audience.
+A networking professional reads this sentence and does not have to
+translate.
+
+The anchor sentence means that across the curriculum, the learner sees
+the same input produce different outputs as the mechanism gets richer.
+The continuity is pedagogical, not decorative. By the time we are
+showing batching, the learner already has strong intuition for what each
+token in the anchor sentence "wants" from attention, and can focus on
+the new thing.
+
+## What Act 2 covers
+
+Act 1 ends when the learner can explain (with the anchor sentence as
+their example) how a single sequence produces a single token of output.
+Act 2 is about serving.
+
+The stops cover, roughly:
+
+- **Batching**. Why serving one request at a time is insane. Why static
+  batching helps. Why it still wastes a lot.
+- **Continuous batching**. The jump from "wait for the slowest sequence"
+  to "swap in new work as sequences finish." This is the single biggest
+  economic improvement in LLM serving and most infrastructure
+  professionals have never had it explained properly.
+- **PagedAttention**. Treating the KV cache like virtual memory.
+  This one is especially satisfying to teach because the analogy to
+  how operating systems handle RAM is exact, not metaphorical.
+- **Preemption**. What happens when a new request arrives and the serving
+  system has to decide whether to stop someone in the middle.
+
+Each of these is a stop, not a chapter. The reader clicks through. Every
+concept gets an animation, a why, a how, and a specific failure mode.
+
+## What I would do differently
+
+The curriculum is not finished, and I am still adding to it. Things I
+already know I want to change:
+
+- The earliest stops spend too much time in generalities. If I were
+  starting over I would put the anchor sentence in front of the learner
+  much sooner than I did.
+- I underestimated how much the networking audience specifically wanted
+  to see where the network actually touches the system. A future revision
+  will add a recurring "where is the wire" callout that anchors each
+  stop to a specific point in the serving path.
+- The animations are hand-tuned HTML and SVG. This was the right choice
+  for the first pass but will not scale forever. Migration to a small
+  shared animation primitives library is on the list.
+
+## Why publish this
+
+I am writing this build log partly because I want to think clearly about
+what we are doing, and writing is how I do that. I am also publishing
+it because the constraints I listed above could be useful beyond this curriculum.
+
+If you are about to start building technical education, steal these. I would 
+rather you start where I ended up than spend months rediscovering the same rules. 
+
+And if you are thinking, more broadly, about what AI-assisted learning could look 
+like for people whose minds do not fit standard pedagogy, I would especially like 
+to hear from you. These rules are where I ended up, not where you should.
+
+How did they land for you? What would you add?
+
+If you want to see the curriculum itself, it lives at
+[provandal.github.io/inference-illustrated](https://provandal.github.io/inference-illustrated/).
+The source is on [GitHub](https://github.com/provandal/inference-illustrated).

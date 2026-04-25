@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://provandal.dev/sitemap-index.xml

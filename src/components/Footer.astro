@@ -1,0 +1,22 @@
+---
+const year = new Date().getFullYear();
+---
+<footer class="max-w-5xl mx-auto mt-24 pt-10 pb-12 border-t rule">
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
+    <div class="max-w-md">
+      <p class="eyebrow mb-3">Colophon</p>
+      <p class="text-sm text-ink-400 leading-relaxed">
+        A site by Erik Smith. Built with Astro and Tailwind. Set in
+        <span class="font-display text-ink-200">Fraunces</span>,
+        <span class="font-sans text-ink-200">Geist</span>, and
+        <span class="font-mono text-ink-200">JetBrains Mono</span>.
+      </p>
+    </div>
+    <div class="flex items-center gap-6 font-mono text-sm text-ink-500">
+      <a href="https://github.com/provandal" class="hover:text-signal transition-colors">GitHub</a>
+      <a href="/rss.xml" class="hover:text-signal transition-colors">RSS</a>
+      <span class="text-ink-700">·</span>
+      <span>&copy; {year}</span>
+    </div>
+  </div>
+</footer>
