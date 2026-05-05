@@ -1,0 +1,152 @@
+---
+title: "When LLMs Should Plan, Not Execute"
+description: "Four reasons LLMs don't belong on the critical execution path, 
+and the planner-actor architecture that can be used in production today."
+pubDate: 2026-05-05
+tags: ["agentic-ai", "infrastructure", "planner-actor", "llm-architecture"]
+draft: false
+---
+
+LLMs are great at two things: context **compression** and context **expansion**.
+
+**Compression.** I asked Claude: *"Summarize this blog post for me in two sentences."* Its output:
+
+> Production infrastructure management needs determinism, auditability, and microsecond-class execution, properties that probabilistic, slow, energy-hungry LLMs cannot provide on the critical path, even though they remain genuinely useful for context compression and expansion. The pragmatic architecture today is planner-actor: let the LLM plan, decompose intent, and generate workflows, but route execution through deterministic algorithms that have been tested and can be audited, and migrate work back to the LLM only as accuracy approaches the ~100% bar that production infrastructure actually requires.
+
+**Expansion.** I asked Claude: *"Please create a Colab notebook that compares LLM and algorithmic approaches for finding the shortest path in a graph."* The [companion notebook](https://colab.research.google.com/github/provandal/shortest-path-experiment/blob/main/shortest_path_experiment.ipynb) is what generated the data for this post.
+
+Everything LLMs do falls into one of those two categories.[^1]
+
+[^1]: Yes, this collapses planning and reasoning into "context expansion." Some readers will dispute that. However, this framing is useful for this post.
+
+If you find yourself thinking "what about planning, or reasoning?" I'll point out that both are types of context expansion. Both involve the model taking the information available to it and generating a response based on probabilities (e.g., the most likely next token). If you want to dive into some of these details, see [Inference Illustrated](https://provandal.dev/inference-illustrated/).
+
+LLMs are genuinely useful at compression and expansion tasks, and I use them all the time. But there are entire classes of work that make reaching for an LLM the wrong move, and they happen to be exactly the tasks an infrastructure architect cares about most: production state changes, automated workflows, anything that needs to be auditable, fast, or cheap to repeat. 
+
+In the sections that follow, I'll provide you with four reasons that support my position and then describe an architecture that addresses them.
+
+## 1. LLMs are non-deterministic (and production needs determinism)
+
+LLMs produce output based on probabilities. Even if you tell the LLM exactly what to do, sometimes it will not comply. This is not a controversial opinion; it is literally how they work, and it is why they can be so good at context expansion.
+
+It's also why I don't trust them to run workflows that change production state.
+
+HAL: *"I'm afraid I can't do that, Dave."*
+
+No, not for that reason. The reason is, production actions need to be exactly right and exactly reproducible: same input, same output, every time.
+
+Think about a firmware upgrade on a storage array. If you've ever done one of these, you know the order of operations matters and it depends on the array architecture. With an active/passive architecture you must ensure all hosts are connected and using the path that is NOT being upgraded before you start. Get this wrong and you could have a DU (Data Unavailable) situation on your hands, at a minimum.
+
+The problem with LLMs is that you can hand the model the exact order of operations and it will almost always follow them. But "almost always" is the wrong target for production. The deeper problem is not even reliability; it's everything that determinism gives you for free:
+
+- **Auditability and compliance.** SOC 2 and ISO 27001 both depend on reproducible, predictable workflows. An LLM that picks a different sequence of steps between runs breaks the audit trail, breaks change-control review, and breaks your ability to attest to what actually happened.
+- **Debuggability.** When firmware upgrade #4,389 fails at 3am, you need to know exactly what was supposed to happen, replay it, and explain it. Probabilistic systems cannot be cleanly replayed.
+- **Rollback.** Predictable plans have predictable compensating actions. "Whatever the LLM did last time" does not.
+
+The right place for the LLM is in the build pipeline, to produce the workflow once, which is then tested extensively and run by a deterministic orchestrator (e.g., Dell Automation Platform, Step Functions, Argo Workflows, or any tested orchestrator). The LLM does not belong on the critical execution path.
+
+## 2. LLMs are slow
+
+Asking an LLM to find the shortest path between two nodes in a graph is roughly five orders of magnitude slower than running Dijkstra directly. The [companion notebook](https://colab.research.google.com/github/provandal/shortest-path-experiment/blob/main/shortest_path_experiment.ipynb) measures this directly. The order-of-magnitude story for a 100-node graph:
+
+- **Dijkstra:** ~100 microseconds, 100% correct, $0 per query.
+- **LLM:** ~30 seconds/query, ~95% correct, ~$0.06 per query.
+- **LLM with chain-of-thought:** ~40 seconds/query, ~75% correct, ~$0.09 per query. CoT got worse, not better, which is consistent with results showing that on small, well-structured graph problems, longer reasoning chains introduce more places for the model to go off-rails than direct prompting does.
+- **LLM calling Dijkstra as a tool:** ~4 seconds/query, ~100% correct (tool call), much cheaper, but still nowhere near the local algorithm.
+
+The same shape shows up across real infrastructure tasks. Take network topology generation: a pure-LLM agent (the model orchestrates and calls tools itself) takes ~30–60 seconds to produce a 100-node switch topology, and the output includes occasional errors. A deterministic topology generator returns a correct topology, orders of magnitude faster, every time.
+
+If you're only running these jobs once a quarter, the latency doesn't really matter. If you run them inside an automation loop, the latency compounds, the failures compound, and we have unhappy end-users.
+
+## 3. LLMs are expensive in dollars and in joules
+
+The companion notebook warns that running it costs $3–$6 in API credits. This is for a trivial experiment: shortest path on a few graphs. A naively-built production system that routes everything through an LLM as the executor will cost real money on a real bill. The fix is the same fix as for everything else in this post: do not use the LLM where an algorithm already exists. Use it as a tool in your agentic framework, and only call it when you actually need compression or expansion.
+
+The energy story is more interesting because it cuts both ways depending on what you are comparing against.
+
+**Versus deterministic execution: LLMs are wildly more energy-hungry.**
+
+From the back-of-envelope on the notebook:
+
+- Dijkstra at 100 nodes: ~0.005 J per query (microseconds × CPU power).
+- LLM at 100 nodes: ~2,000–5,000 J per query (round-trip GPU inference + cooling + networking).
+- Ratio: roughly 500,000×.
+
+Conservative round number: calling an LLM for execution work that an algorithm could do consumes more than 100,000× the energy of doing it locally via an algorithm.
+
+**Versus humans for knowledge work: AI is dramatically more efficient.**
+
+[Bill Tomlinson et al. (Scientific Reports, 2024)](https://www.nature.com/articles/s41598-024-54271-x) compared per-page emissions for AI vs. humans for writing and illustration:
+
+- AI writing a page: ~1.4 g CO₂e (BLOOM) or ~2.2 g (ChatGPT-3.5).
+- A US-based human writing the same page (their share of commute, office HVAC, equipment, food calories): ~1,400 g CO₂e.
+- Ratio: 600–1,500× in favor of AI.
+
+The Tomlinson comparison amortizes lifestyle emissions across human output, and the AI number does not fully amortize training cost across queries. Both methodological choices are defensible, and even with conservative adjustments the ratio remains lopsided. Both observations are consistent with the same rule: use the LLM where it shines (compression and expansion) and use the algorithm where it shines (execution). Do not use the LLM as the executor for things an algorithm can already do. Do not use a team of humans to compress a blog post.
+
+## 4. The math the infrastructure team actually cares about
+
+Decompose an agentic action into plan and execute. The joint success probability is:
+
+`P(success) = P(correct plan) × P(correct execution | correct plan)`
+
+A pure-LLM agent (LLM does both planning and execution):
+
+`P(plan) ≈ 0.95, P(execute) ≈ 0.95 → P(success) ≈ 0.90`
+
+That 0.95 number is generous, and the published numbers suggest pure-LLM accuracy on real enterprise workflows is much worse out of the box. Zeng et al. (2025), [*Routine: A Structural Planning Framework for LLM Agent System in Enterprise*](https://arxiv.org/abs/2507.14447), report GPT-4o accuracy on multi-step tool-calling tasks rising from 41.1% to 96.3% when the model is given a structured Routine to follow. The improvement comes from imposing structure on the plan, not from a better model. I think Pure-LLM agents may eventually be useful for executing tasks in production, but they aren't quite there today. The reason is, production infrastructure management requires accuracy approaching 100%. While the gap between 95% and 100% looks small on paper, when compounded across every step of every workflow, it's not.
+
+A planner-actor architecture (LLM plans, deterministic actor executes, see below):
+
+`P(plan) ≈ 0.99, P(execute) ≈ 1.00 → P(success) ≈ 0.99`
+
+Take a ten-step workflow and compound the per-action numbers. Pure LLM at 0.95 per step: 0.95^10 ≈ 60% chance of running clean end-to-end. Pure LLM at the more realistic 0.41 baseline from Routine: essentially zero. Planner-actor at 0.99: 0.99^10 ≈ 90%. Same workflow length, very different probability of finishing.
+
+You do not quite get to 100%. Planning can still introduce risk, though it can be made much better by:
+
+- Having a Human-in-the-Loop review that the correct workflow is being called.
+- Calling tools that are themselves tested workflows.
+
+Execution can still encounter states you did not anticipate during testing. That is a real-world failure scenario, and it's a point that I'll explore in depth in a future post about how to handle the moment determinism breaks.
+
+The point: you stop compounding execution risk on top of planning risk, you keep the audit trail, you keep the ability to roll back, and you keep the latency and the energy bill in check.
+
+## Planner-actor: a pragmatic bridge
+
+The planner-actor approach (not the same as ReAct, see the note at the end) is not the end state. It's the architecture that lets you ship today, with current model accuracy, while preserving a clean migration path:
+
+**Today.** LLM plans, deterministic actor executes. The LLM is in the loop where it adds value (parsing intent, summarizing results, generating new actor scripts) but never on the critical execution path. A RecoveryAgent (also an LLM) can take over when a deterministic plan hits an unexpected state, because at that point determinism is already gone anyway.
+
+**Tomorrow.** As accuracy climbs, individual deterministic actors get replaced with LLM-skill calls one at a time. The migration is not trivial. Testing, regression, and the audit story all change as more execution becomes probabilistic. The orchestrator stays.
+
+LLMs are tools that cost money and energy to operate. They unlock things that were impractical before. The trick is to use them where they shine (compression and expansion) and to keep them off the critical path where deterministic algorithms already do the job better, faster, and cheaper.
+
+## A note about planner-actor versus ReAct
+
+With [ReAct (Yao et al., 2022)](https://arxiv.org/abs/2210.03629), control flow lives inside the LLM and is decided at runtime. The model alternates between Thought → Action → Observation → Thought → Action → ... in a single conversation. Every "what should I do next" decision is an autoregressive token-generation step. Tools themselves are deterministic (the search API returns what it returns), but the sequence and selection of tool calls is probabilistic and decided fresh each run.
+
+Planner-actor: control flow is decided up front and frozen. The LLM produces a plan (typically a DAG, JSON workflow, or ordered sequence) and hands it off to a deterministic orchestrator (e.g., Dell Automation Platform) that executes it. The orchestrator does not call back into the LLM at each step. The LLM has spent its token budget on planning; the rest is mechanical execution.
+
+The shorthand: **ReAct is interpreted; planner-actor is compiled.** ReAct decides each step at runtime, the way an interpreter evaluates expressions one at a time. Planner-actor produces the whole program first, then runs it through a tested build system.
+
+**Practical consequences:**
+
+- **Determinism.** Planner-actor wins. Same plan, same execution. ReAct re-decides control flow every run, so the same inputs can produce different action traces.
+- **Auditability.** A planner-actor plan is a reviewable artifact you can pin to a change ticket. A ReAct trace is "whatever the model decided this time."
+- **Latency.** Planner-actor pays one LLM round-trip up front. ReAct pays one per step.
+- **Adaptivity.** ReAct wins. If something unexpected happens mid-run, it can pivot. Planner-actor needs the plan to anticipate the surprise, or to fall back to a recovery mechanism, which is where something like a RecoveryAgent would fit. More on this in a future post.
+
+**When to use which:**
+
+- **ReAct** for research, question-answering, exploration. The goal is to learn more, and a different action trace each run is fine, sometimes even better.
+- **Planner-actor** for production state changes, anything with side effects, anywhere the plan must be auditable before execution.
+
+**The middle ground: harnesses.** In practice, production agents rarely live purely in one camp. A harness (i.e., the surrounding scaffolding of orchestration, memory, retrieval, skills, and guardrails) picks the right execution model per step. Read-only diagnostic loops can run ReAct-style, where adaptivity is the point. Write actions with real blast radius get compiled into a plan and handed to a deterministic actor. The harness is what decides which is which, and that decision is where most of the interesting design work lives. I'll say more in a forthcoming post and companion explainer, *Harnesses Illustrated*.
+
+## Closing: where the boundaries belong
+
+As I was reviewing this post (and planning the next one), I realized I was making a larger point than simply when to (and not to) use LLMs. 
+
+Because if LLMs only do two things (compress context and expand it), then the planner-actor split isn't a clever workaround, it's a first principles solution to the problem. Planning *is* compression: human intent and system state collapsed into a workflow. Recovery *is* expansion: an unexpected state expanded into a remediation. Execution is neither, which is exactly why it belongs to deterministic algorithms that have been doing it well for decades. The interesting design work, isn't whether to use an LLM. It's *where to place the compression and expansion boundaries* relative to the user, the orchestrator, and the executor. Push compression too far from the user and the network and the KV cache pay for it. Push expansion too close to production state and you lose determinism. 
+
+The next post in this series digs into the first half of that question: what happens when you move context compression closer to the user, and why that changes the latency, cost, and privacy story for the entire stack.
