@@ -1,0 +1,798 @@
+<title>Anatomy of One Agent Run</title>
+<style>
+  :root {
+    --ground: #0B1016;
+    --panel: #111823;
+    --panel-2: #0E141D;
+    --line: #223041;
+    --line-soft: #1A2532;
+    --text: #DCE6F2;
+    --muted: #8FA1B5;
+    --faint: #5C6B7D;
+    --user: #E8B45A;
+    --agent: #55C8E8;
+    --harness: #9D8CE8;
+    --tool: #6FD08C;
+    --alarm: #F2637E;
+    --mono: "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+    --sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font-family: var(--sans);
+    overflow: hidden;
+  }
+  #stage {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    max-width: 1500px;
+    margin: 0 auto;
+    padding: 14px 20px 12px;
+    gap: 10px;
+  }
+
+  /* ---------- header ---------- */
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 21px;
+    font-weight: 650;
+    letter-spacing: 0.01em;
+    text-wrap: balance;
+  }
+  header .sub {
+    color: var(--muted);
+    font-size: 13px;
+  }
+  header .prov {
+    margin-left: auto;
+    color: var(--faint);
+    font-size: 11.5px;
+    font-family: var(--mono);
+  }
+  #dots {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    width: 100%;
+  }
+  #dots button {
+    width: 22px; height: 6px;
+    border: 0; border-radius: 3px;
+    background: var(--line);
+    cursor: pointer;
+    padding: 0;
+  }
+  #dots button.done { background: #35506B; }
+  #dots button.cur { background: var(--agent); }
+  #dots button:focus-visible { outline: 2px solid var(--agent); outline-offset: 2px; }
+
+  /* ---------- main split ---------- */
+  main {
+    flex: 1;
+    display: flex;
+    gap: 12px;
+    min-height: 0;
+    position: relative;
+  }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .panel-title {
+    padding: 8px 14px;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--line-soft);
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .panel-title .note { text-transform: none; letter-spacing: 0; color: var(--faint); font-size: 11px; }
+
+  /* ---------- trajectory (left) ---------- */
+  #traj { flex: 0 0 43%; }
+  #lanes {
+    display: flex;
+    position: relative;
+    padding: 24px 0 4px;
+    flex: 0 0 auto;
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+  #agentbracket {
+    position: absolute;
+    top: 6px;
+    left: 27%;
+    width: 46%;
+    height: 14px;
+    border: 1px solid var(--line);
+    border-bottom: 0;
+    border-radius: 5px 5px 0 0;
+  }
+  #agentbracket span {
+    position: absolute;
+    top: -7px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--panel);
+    padding: 0 8px;
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  body.ge1 #lanes { opacity: 1; }
+  .lane-head {
+    flex: 1;
+    text-align: center;
+  }
+  .lane-head .chip {
+    display: inline-block;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    padding: 4px 14px;
+    border-radius: 4px;
+    border: 1px solid;
+  }
+  .lane-head small {
+    display: block;
+    margin-top: 3px;
+    color: var(--faint);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+  }
+  .lane-u .chip { color: var(--user); border-color: color-mix(in srgb, var(--user) 45%, transparent); background: color-mix(in srgb, var(--user) 8%, transparent); }
+  .lane-h .chip { color: var(--harness); border-color: color-mix(in srgb, var(--harness) 45%, transparent); background: color-mix(in srgb, var(--harness) 8%, transparent); }
+  .lane-m .chip { color: var(--agent); border-color: color-mix(in srgb, var(--agent) 45%, transparent); background: color-mix(in srgb, var(--agent) 8%, transparent); }
+  .lane-f .chip { color: var(--tool); border-color: color-mix(in srgb, var(--tool) 45%, transparent); background: color-mix(in srgb, var(--tool) 8%, transparent); }
+  #loopmark {
+    display: inline-block;
+    margin-left: 6px;
+    color: var(--agent);
+    opacity: 0;
+    transition: opacity 0.5s;
+    font-size: 14px;
+  }
+  body.ge13 #loopmark { opacity: 1; }
+  #loopmark { color: var(--harness); }
+
+  #evts {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 6px 0 10px;
+  }
+  .lifeline {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 0;
+    border-left: 1px dashed var(--line);
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+  body.ge1 .lifeline { opacity: 1; }
+  .ll-u { left: 12.5%; } .ll-h { left: 37.5%; } .ll-m { left: 62.5%; } .ll-f { left: 87.5%; }
+
+  .evt {
+    position: relative;
+    height: clamp(46px, 6.6vh, 64px);
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.35s, transform 0.35s;
+  }
+  .evt.single { height: clamp(32px, 4.4vh, 42px); }
+  .evt.note { height: clamp(30px, 4.2vh, 38px); }
+  .evt.shown { opacity: 1; transform: none; }
+  .evt .arr {
+    position: absolute;
+    height: 0;
+    border-top: 2px solid;
+  }
+  .evt .arr::after {
+    content: "";
+    position: absolute;
+    top: -5px;
+    border: 4px solid transparent;
+  }
+  .evt .lbl {
+    position: absolute;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text);
+    line-height: 1.2;
+  }
+  .evt .lbl b { font-weight: 600; }
+  .evt .l1 { top: 1px; }  .evt .a1 { top: 18px; }
+  .evt .l2 { top: 22px; } .evt .a2 { top: 42px; }
+  /* spans between lane centers (labels get extra width for breathing room) */
+  .evt.u-h .arr { left: 12.5%; width: 25%; }
+  .evt.u-h .lbl { left: 5%;    width: 40%; }
+  .evt.h-m .arr { left: 37.5%; width: 25%; }
+  .evt.h-m .lbl { left: 27.5%; width: 45%; }
+  .evt.h-f .arr { left: 37.5%; width: 50%; }
+  .evt.h-f .lbl { left: 37.5%; width: 50%; }
+  /* model exchange: solid call right, dashed return left, cyan */
+  .evt.mdl .arr { border-top-color: var(--agent); }
+  .evt.mdl .a1::after { right: -2px; border-left: 7px solid var(--agent); }
+  .evt.mdl .a2 { border-top-style: dashed; }
+  .evt.mdl .a2::after { left: -2px; border-right: 7px solid var(--agent); }
+  /* fabric exchange: green */
+  .evt.fab .arr { border-top-color: var(--tool); }
+  .evt.fab .a1::after { right: -2px; border-left: 7px solid var(--tool); }
+  .evt.fab .a2 { border-top-style: dashed; }
+  .evt.fab .a2::after { left: -2px; border-right: 7px solid var(--tool); }
+  .evt.fab.trap .a2 { border-top-color: var(--user); }
+  .evt.fab.trap .a2::after { border-right-color: var(--user); }
+  .evt.fab.trap .l2 { color: var(--user); }
+  .evt.fab.gun .a2 { border-top-color: var(--alarm); }
+  .evt.fab.gun .a2::after { border-right-color: var(--alarm); }
+  .evt.fab.gun .l2 { color: var(--alarm); }
+  /* user rows: amber; ticket rightward solid, answer leftward dashed */
+  .evt.usr .a1 { border-top-color: var(--user); }
+  .evt.usr .a1::after { right: -2px; border-left: 7px solid var(--user); }
+  .evt.ans .a1 { border-top-color: var(--user); border-top-style: dashed; }
+  .evt.ans .a1::after { left: -2px; border-right: 7px solid var(--user); }
+  /* harness self-action pill */
+  .evt.note .pill {
+    position: absolute;
+    left: 37.5%;
+    top: 4px;
+    transform: translateX(-50%);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--harness);
+    border: 1px dashed color-mix(in srgb, var(--harness) 50%, transparent);
+    border-radius: 10px;
+    padding: 3px 10px;
+    white-space: nowrap;
+  }
+
+  /* ---------- context window (right) ---------- */
+  #ctx { flex: 1; }
+  #stack {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    scroll-behavior: smooth;
+  }
+  #stack, #evts {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+  }
+  #stack::-webkit-scrollbar, #evts::-webkit-scrollbar { width: 8px; }
+  #stack::-webkit-scrollbar-thumb, #evts::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+  #stack::-webkit-scrollbar-track, #evts::-webkit-scrollbar-track { background: transparent; }
+  .card {
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--faint);
+    border-radius: 6px;
+    background: var(--panel-2);
+    padding: 8px 12px 9px;
+    font-size: 13px;
+    line-height: 1.45;
+    display: none;
+    flex: 0 0 auto;
+  }
+  .card.shown { display: block; animation: cardIn 0.35s ease; }
+  @keyframes cardIn { from { opacity: 0; transform: translateY(8px); } }
+  .card .num {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 0 5px;
+    margin-right: 7px;
+  }
+  .card .tag {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 700;
+    display: inline-block;
+    margin-bottom: 4px;
+  }
+  .card.sys  { border-left-color: var(--harness); }
+  .card.sys .tag { color: var(--harness); }
+  .card.usr  { border-left-color: var(--user); }
+  .card.usr .tag { color: var(--user); }
+  .card.mdl  { border-left-color: var(--agent); }
+  .card.mdl .tag { color: var(--agent); }
+  .card.tl   { border-left-color: var(--tool); }
+  .card.tl .tag { color: var(--tool); }
+  .card pre {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    white-space: pre-wrap;
+    overflow-x: auto;
+    color: var(--text);
+  }
+  .card .quote { color: var(--text); font-style: italic; }
+  .card .dim { color: var(--muted); }
+  .card .hot { color: var(--alarm); font-weight: 700; }
+  .card .warm { color: var(--user); font-weight: 600; }
+  .card .meta {
+    margin-top: 6px;
+    padding-top: 5px;
+    border-top: 1px solid var(--line-soft);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--faint);
+  }
+  #menu {
+    margin-top: 7px;
+    display: none;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  body.ge2 #menu { display: flex; }
+  #menu span {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--tool);
+    border: 1px solid color-mix(in srgb, var(--tool) 40%, transparent);
+    background: color-mix(in srgb, var(--tool) 7%, transparent);
+    border-radius: 4px;
+    padding: 2px 9px;
+  }
+  #menu .menu-note { border: 0; background: none; color: var(--faint); font-family: var(--sans); font-size: 11.5px; padding: 2px 0; }
+  .card .trapTag, .card .gunTag {
+    float: right;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 700;
+    padding: 1px 8px;
+    border-radius: 3px;
+  }
+  .trapTag { color: var(--user); border: 1px solid color-mix(in srgb, var(--user) 50%, transparent); }
+  .gunTag  { color: var(--alarm); border: 1px solid color-mix(in srgb, var(--alarm) 50%, transparent); }
+  body.ge9 #card-fab { border-color: color-mix(in srgb, var(--user) 45%, var(--line)); }
+  body.ge11 #card-host { border-color: color-mix(in srgb, var(--alarm) 45%, var(--line)); }
+
+  /* model box */
+  #modelbox {
+    flex: 0 0 auto;
+    border-top: 1px solid var(--line);
+    padding: 9px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--panel);
+    border-radius: 0 0 8px 8px;
+  }
+  #modelbox .m-chip {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--agent);
+    border: 1px solid color-mix(in srgb, var(--agent) 50%, transparent);
+    background: color-mix(in srgb, var(--agent) 8%, transparent);
+    border-radius: 5px;
+    padding: 5px 12px;
+    white-space: nowrap;
+  }
+  #modelbox .m-status {
+    font-size: 12.5px;
+    color: var(--muted);
+    min-width: 0;
+  }
+  #modelbox .m-status b { color: var(--text); font-weight: 600; }
+  #ctx.reading #modelbox .m-chip {
+    animation: mglow 0.9s ease-in-out;
+  }
+  #ctx.reading #stack {
+    animation: ingest 0.9s ease-in-out;
+  }
+  @keyframes mglow {
+    0%, 100% { box-shadow: none; }
+    45% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--agent) 35%, transparent), 0 0 22px color-mix(in srgb, var(--agent) 45%, transparent); }
+  }
+  @keyframes ingest {
+    0%, 100% { box-shadow: none; }
+    45% { box-shadow: inset 0 -40px 40px -40px color-mix(in srgb, var(--agent) 55%, transparent); }
+  }
+
+  /* ---------- closing overlay ---------- */
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--ground) 78%, transparent);
+    backdrop-filter: blur(3px);
+    border-radius: 8px;
+    z-index: 5;
+  }
+  body.ge13 #overlay { display: flex; }
+  #overlay .inner {
+    max-width: 620px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 26px 34px 24px;
+    text-align: center;
+  }
+  #overlay h2 {
+    margin: 0 0 14px;
+    font-size: 15px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  #overlay .stats {
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    margin-bottom: 16px;
+  }
+  #overlay .stat b {
+    display: block;
+    font-family: var(--mono);
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--agent);
+    font-variant-numeric: tabular-nums;
+  }
+  #overlay .stat span { font-size: 11.5px; color: var(--muted); letter-spacing: 0.04em; }
+  #overlay .tokens {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--text);
+    margin-bottom: 14px;
+  }
+  #overlay .tokens b { color: var(--user); font-weight: 700; }
+  #overlay p {
+    margin: 0 0 10px;
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--text);
+    text-wrap: balance;
+  }
+  #overlay p.thesis { font-size: 17px; font-weight: 650; }
+  #overlay p.contrast { color: var(--muted); font-size: 13.5px; margin-bottom: 0; }
+
+  /* ---------- caption bar ---------- */
+  footer {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 18px;
+    min-height: 66px;
+  }
+  #cap {
+    flex: 1;
+    font-size: 17px;
+    line-height: 1.45;
+    text-wrap: balance;
+  }
+  #cap b { color: var(--agent); font-weight: 650; }
+  #cap .warm { color: var(--user); font-weight: 650; }
+  #cap .hot { color: var(--alarm); font-weight: 650; }
+  #cap .q { font-style: italic; }
+  #nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+  }
+  #nav button {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font-size: 17px;
+    line-height: 1;
+    padding: 8px 14px;
+    cursor: pointer;
+  }
+  #nav button:hover { border-color: var(--agent); color: var(--agent); }
+  #nav button:focus-visible { outline: 2px solid var(--agent); outline-offset: 2px; }
+  #ctr {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--muted);
+    min-width: 56px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  #hint { font-size: 10.5px; color: var(--faint); text-align: right; line-height: 1.5; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .evt { transition: none; }
+    .card.shown { animation: none; }
+    #ctx.reading #modelbox .m-chip, #ctx.reading #stack { animation: none; }
+    #stack { scroll-behavior: auto; }
+  }
+</style>
+
+<div id="stage">
+  <header>
+    <h1>Anatomy of one agent run</h1>
+    <span class="sub">silent-drops fault &middot; 256-host RDMA leaf-spine &middot; one recorded trace</span>
+    <span class="prov">payloads verbatim, abridged</span>
+    <nav id="dots" aria-label="steps"></nav>
+  </header>
+
+  <main>
+    <section id="traj">
+      <div class="panel-title">The trajectory <span class="note">who talked to whom</span></div>
+      <div id="lanes">
+        <div id="agentbracket"><span>THE AGENT</span></div>
+        <div class="lane-head lane-u"><span class="chip">USER</span><small>&nbsp;</small></div>
+        <div class="lane-head lane-h"><span class="chip">HARNESS<span id="loopmark">&#8635;</span></span><small>runtime + loop</small></div>
+        <div class="lane-head lane-m"><span class="chip">MODEL (LLM)</span><small>a stateless, probabilistic function</small></div>
+        <div class="lane-head lane-f"><span class="chip">THE FABRIC</span><small>reached only through tools</small></div>
+      </div>
+      <div id="evts">
+        <div class="lifeline ll-u"></div><div class="lifeline ll-h"></div><div class="lifeline ll-m"></div><div class="lifeline ll-f"></div>
+        <div class="evt note" data-step="1"><span class="pill">composes context: system prompt + tool menu</span></div>
+        <div class="evt single u-h usr" data-step="3"><div class="lbl l1">help ticket</div><div class="arr a1"></div></div>
+        <div class="evt h-m mdl" data-step="4"><div class="lbl l1">text in: msgs 1-2</div><div class="arr a1"></div><div class="lbl l2">text out: get_topology()</div><div class="arr a2"></div></div>
+        <div class="evt h-f fab" data-step="5"><div class="lbl l1">get_topology</div><div class="arr a1"></div><div class="lbl l2">result &rarr; context</div><div class="arr a2"></div></div>
+        <div class="evt h-m mdl" data-step="6"><div class="lbl l1">text in: msgs 1-4</div><div class="arr a1"></div><div class="lbl l2">text out: get_flow_records()</div><div class="arr a2"></div></div>
+        <div class="evt h-f fab" data-step="7"><div class="lbl l1">get_flow_records</div><div class="arr a1"></div><div class="lbl l2">result: <b>14 flows dead</b></div><div class="arr a2"></div></div>
+        <div class="evt h-m mdl" data-step="8"><div class="lbl l1">text in: msgs 1-6</div><div class="arr a1"></div><div class="lbl l2">text out: get_fabric_counters()</div><div class="arr a2"></div></div>
+        <div class="evt h-f fab trap" data-step="9"><div class="lbl l1">get_fabric_counters</div><div class="arr a1"></div><div class="lbl l2">result: <b>fabric clean</b></div><div class="arr a2"></div></div>
+        <div class="evt h-m mdl" data-step="10"><div class="lbl l1">text in: msgs 1-8</div><div class="arr a1"></div><div class="lbl l2">text out: get_host_counters()</div><div class="arr a2"></div></div>
+        <div class="evt h-f fab gun" data-step="11"><div class="lbl l1">get_host_counters</div><div class="arr a1"></div><div class="lbl l2">result: <b>host 16: 153 drops</b></div><div class="arr a2"></div></div>
+        <div class="evt h-m mdl" data-step="12"><div class="lbl l1">text in: msgs 1-10, 486,286 tokens</div><div class="arr a1"></div><div class="lbl l2">text out: <b>the diagnosis</b></div><div class="arr a2"></div></div>
+        <div class="evt single u-h ans" data-step="12"><div class="lbl l1">triage response: sick link, L1</div><div class="arr a1"></div></div>
+      </div>
+    </section>
+
+    <section id="ctx">
+      <div class="panel-title">The context window <span class="note">what the model sees, every single turn</span></div>
+      <div id="stack">
+        <div class="card sys" id="card-sys" data-step="1">
+          <span class="num">msg 1</span><span class="tag">system prompt &middot; assembled by the harness</span>
+          <pre>You are a network-investigation assistant for an RDMA
+leaf-spine fabric. Help the user diagnose their issue.</pre>
+          <div id="menu">
+            <span>get_topology</span><span>get_fabric_counters</span><span>get_flow_records</span><span>get_host_counters</span>
+            <span class="menu-note">four names in the text. That is the entire "integration."</span>
+          </div>
+        </div>
+
+        <div class="card usr" data-step="3">
+          <span class="num">msg 2</span><span class="tag">user &middot; help ticket</span>
+          <pre class="quote">"We have flows on the AI cluster that just never finish.
+They don't error out cleanly, they don't time out fast, they
+just dribble &mdash; bytes keep moving for a while and then the
+flow sits there. Other flows on the same hosts are fine.
+Started a couple of weeks ago. No firmware update, no
+topology change we're aware of."</pre>
+        </div>
+
+        <div class="card mdl" data-step="4">
+          <span class="num">msg 3</span><span class="tag">model emits &middot; turn 1</span>
+          <pre>&rarr; get_topology()</pre>
+        </div>
+
+        <div class="card tl" data-step="5">
+          <span class="num">msg 4</span><span class="tag">tool result &middot; pasted in by the harness</span>
+          <pre>256-host leaf-spine, bundled burst flow pattern
+<span class="dim">confidence: high &middot; staleness: fresh</span></pre>
+        </div>
+
+        <div class="card mdl" data-step="6">
+          <span class="num">msg 5</span><span class="tag">model emits &middot; turn 2</span>
+          <pre>&rarr; get_flow_records()</pre>
+        </div>
+
+        <div class="card tl" data-step="7">
+          <span class="num">msg 6</span><span class="tag">tool result</span>
+          <pre>flows: 266 total &middot; 252 completed &middot; completed p99: 433 &micro;s
+<span class="warm">14 &times; "dropped_without_completion"</span>
+  sip 0b000001 &rarr; dip <span class="warm">0b001001</span>
+  sip 0b000101 &rarr; dip <span class="warm">0b001001</span>
+  sip 0b000201 &rarr; dip <span class="warm">0b001001</span>
+  <span class="dim">... 11 more, every one &rarr; dip</span> <span class="warm">0b001001</span></pre>
+        </div>
+
+        <div class="card mdl" data-step="8">
+          <span class="num">msg 7</span><span class="tag">model emits &middot; turn 3</span>
+          <pre>&rarr; get_fabric_counters()</pre>
+        </div>
+
+        <div class="card tl" id="card-fab" data-step="9">
+          <span class="trapTag" data-step="9">the trap</span>
+          <span class="num">msg 8</span><span class="tag">tool result</span>
+          <pre>every queue on every switch port:
+  dropped_packets: <b>0</b>
+one ECN hotspot (if 17: 848 marks)
+one transient PFC pause/resume pair (if 34)
+<span class="dim">~41,900 lines of JSON, abridged</span></pre>
+        </div>
+
+        <div class="card mdl" data-step="10">
+          <span class="num">msg 9</span><span class="tag">model emits &middot; turn 4</span>
+          <pre>&rarr; get_host_counters()</pre>
+        </div>
+
+        <div class="card tl" id="card-host" data-step="11">
+          <span class="gunTag" data-step="11">the smoking gun</span>
+          <span class="num">msg 10</span><span class="tag">tool result</span>
+          <pre>host   0  11.0.0.1    drop_packets: 23
+host   6  11.0.6.1    drop_packets: 20
+<span class="hot">host  16  11.0.16.1   drop_packets: 153</span>
+host 152  11.0.152.1  drop_packets: 1
+<span class="dim">every other host: 7-23 (baseline noise)</span></pre>
+        </div>
+
+        <div class="card mdl" data-step="12">
+          <span class="num">msg 11</span><span class="tag">model emits &middot; turn 5 &middot; final answer</span>
+          <pre class="quote">"I've got enough signal to call this."
+
+"Host 16 is ~10&times; the baseline of every other host.
+That's not statistical noise; that's a sick link."
+
+"Reseat / swap the optic / clean the connector on
+host 16 first &mdash; cheapest fix."
+
+"The fabric itself is healthy. Don't go chasing PFC
+tuning or DCQCN parameters... This is L1."</pre>
+          <div class="meta">claude-opus-4-7 &middot; input: 486,286 tokens &middot; output: 1,747 tokens</div>
+        </div>
+      </div>
+      <div id="modelbox">
+        <span class="m-chip">MODEL (LLM) &middot; a stateless, probabilistic function</span>
+        <span class="m-status" id="mstatus">idle &middot; it has no memory of its own, no connection to anything</span>
+      </div>
+    </section>
+
+    <div id="overlay">
+      <div class="inner">
+        <h2>What you just watched</h2>
+        <div class="stats">
+          <div class="stat"><b>5</b><span>model invocations</span></div>
+          <div class="stat"><b>4</b><span>tool calls</span></div>
+          <div class="stat"><b>1</b><span>growing transcript</span></div>
+        </div>
+        <div class="tokens">final turn: <b>486,286 tokens in</b> &rarr; 1,747 tokens out</div>
+        <p>The model never touched the fabric. The harness ran four errands and kept one transcript.</p>
+        <p class="thesis">Model + prompt + tools + loop. That is the entire machine.</p>
+        <p class="contrast">Same scenario with two fewer tools: a confident, wrong ECN story. The menu decided the outcome.</p>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div id="cap"></div>
+    <div id="nav">
+      <button id="prev" aria-label="previous step">&#8249;</button>
+      <span id="ctr">0 / 13</span>
+      <button id="next" aria-label="next step">&#8250;</button>
+    </div>
+    <div id="hint">&rarr; / space / clicker: next<br>&larr; back &middot; Home restart</div>
+  </footer>
+</div>
+
+<script>
+  const CAPS = [
+    'Everything on this screen is <b>one real recorded run</b>. Nothing is mocked; the payloads are verbatim, abridged to fit.',
+    'Before any ticket arrives, <b>the harness composes the context</b>. The system prompt is plain text, written by the harness, not by the user and not by the model.',
+    'The tools ride in that same text: four names on a <b>menu</b>. Not a cable, not a connection. The model can only ever ask; the harness does the running.',
+    'A help ticket, exactly as a user would write one. <span class="warm">No counter names, no link IDs.</span> Just the symptom.',
+    'The harness invokes the model: <b>text in, the whole transcript; text out, one tool call</b>, chosen off the menu. Asking is everything the model can do.',
+    'The model asked; <b>the harness does the reaching</b>. It runs the tool against the fabric and pastes the result into the transcript. The arrow passes straight through the model\'s lane.',
+    'Same stateless, probabilistic function, invoked again, now with a longer transcript. <b>That is the loop.</b> There is no other machinery.',
+    'First thread: <span class="warm">14 flows died without completing, and every one shares the same destination</span>.',
+    'It asks the switches next, where any network engineer would go.',
+    '41,900 lines of counters say <span class="warm">the fabric is innocent</span>: zero drops on every switch port. With only two tools, this same model family invented a confident ECN story at exactly this moment. This run has menu left.',
+    'The clean answer went into the transcript too. <b>Absence of evidence is still evidence</b>, and the model keeps pulling the thread toward the hosts.',
+    'There it is. 0b001001 decodes to 11.0.16.1: <span class="hot">the destination every dead flow shared is dropping packets at ten times baseline</span>.',
+    '<span class="q">"That\'s not statistical noise; that\'s a sick link."</span> Root cause named at layer 1, a check-this-first plan, and a warning <b>not</b> to go tune DCQCN.',
+    'Five turns, one transcript, four errands. The menu decided the outcome.'
+  ];
+  const LAST = CAPS.length - 1;
+  const MODEL_TURNS = { 4: [1, 2], 6: [2, 4], 8: [3, 6], 10: [4, 8], 12: [5, 10] };
+  let cur = 0;
+  let fxTimer = null;
+
+  const stack = document.getElementById('stack');
+  const ctx = document.getElementById('ctx');
+  const cap = document.getElementById('cap');
+  const ctr = document.getElementById('ctr');
+  const mstatus = document.getElementById('mstatus');
+  const dots = document.getElementById('dots');
+  const stepped = document.querySelectorAll('[data-step]');
+
+  for (let i = 0; i <= LAST; i++) {
+    const b = document.createElement('button');
+    b.addEventListener('click', () => goto(i, false));
+    dots.appendChild(b);
+  }
+
+  function goto(n, animate) {
+    n = Math.max(0, Math.min(LAST, n));
+    const forward = n > cur;
+    cur = n;
+    document.body.classList.toggle('ge1', n >= 1);
+    document.body.classList.toggle('ge2', n >= 2);
+    document.body.classList.toggle('ge9', n >= 9);
+    document.body.classList.toggle('ge11', n >= 11);
+    document.body.classList.toggle('ge13', n >= 13);
+    stepped.forEach(el => {
+      el.classList.toggle('shown', Number(el.dataset.step) <= n);
+    });
+    [...dots.children].forEach((d, i) => {
+      d.classList.toggle('cur', i === n);
+      d.classList.toggle('done', i < n);
+    });
+    cap.innerHTML = CAPS[n];
+    ctr.textContent = n + ' / ' + LAST;
+    updateModel(n);
+    if (fxTimer) { clearTimeout(fxTimer); ctx.classList.remove('reading'); }
+    if (animate && forward && MODEL_TURNS[n]) {
+      ctx.classList.add('reading');
+      fxTimer = setTimeout(() => ctx.classList.remove('reading'), 950);
+    }
+    requestAnimationFrame(() => { stack.scrollTop = stack.scrollHeight; });
+  }
+
+  function updateModel(n) {
+    if (n >= 13) {
+      mstatus.innerHTML = 'idle &middot; 5 invocations, and it still remembers nothing. The transcript is the memory.';
+    } else if (n === 12) {
+      mstatus.innerHTML = '<b>turn 5</b>: read msgs 1-10 in full (<b>486,286 tokens</b>), emitted msg 11: the diagnosis';
+    } else if (MODEL_TURNS[n]) {
+      const [turn, msgs] = MODEL_TURNS[n];
+      mstatus.innerHTML = '<b>turn ' + turn + '</b>: reads msgs 1-' + msgs + ' in full, emits msg ' + (msgs + 1) + ' (one tool call)';
+    } else if (n >= 5) {
+      mstatus.innerHTML = 'idle &middot; the transcript grew; the model saw nothing yet. It will re-read everything next turn.';
+    } else if (n >= 1) {
+      mstatus.innerHTML = 'idle &middot; it has no memory of its own, no connection to anything';
+    } else {
+      mstatus.innerHTML = 'idle';
+    }
+  }
+
+  function next() { goto(cur + 1, true); }
+  function prev() { goto(cur - 1, false); }
+
+  document.getElementById('next').addEventListener('click', next);
+  document.getElementById('prev').addEventListener('click', prev);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown' || e.key === 'Enter') { e.preventDefault(); next(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp' || e.key === 'Backspace') { e.preventDefault(); prev(); }
+    else if (e.key === 'Home') { e.preventDefault(); goto(0, false); }
+    else if (e.key === 'End') { e.preventDefault(); goto(LAST, false); }
+  });
+  document.getElementById('evts').addEventListener('click', next);
+
+  goto(0, false);
+</script>

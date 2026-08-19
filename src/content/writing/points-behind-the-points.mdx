@@ -1,0 +1,80 @@
+---
+title: "The Points Behind the Points"
+description: "What I said in the SNIA harness webinar, and the load-bearing ideas
+underneath: the dead corner, the menu and the transcript, visibility failures,
+build time versus run time, and autonomous action classes."
+pubDate: 2026-08-19
+tags: ["agentic-ai", "infrastructure", "harness", "troubleshooting", "snia"]
+draft: false
+---
+
+*Notes from the far side of "Getting Started with AI Harnesses for Infrastructure Troubleshooting," a SNIA webinar I gave this week. The recording and slides will land in the [SNIA Educational Library](https://www.snia.org/educational-library); I will add direct links when they do.*
+
+A 45-minute webinar is a compression algorithm. Every claim that survived into the deck was standing on something sturdier that there wasn't time to say. The talk went well, the questions were sharp, and several of them poked at exactly the load-bearing ideas I'd compressed away. So this post is the sturdier stuff: what I said, and what was underneath it.
+
+## 1. "You can just start" is a technical claim, not a pep talk
+
+**What I said:** You don't need Skills. You don't need MCP servers exposing everything as a tool. You don't need a purpose-built harness or a domain-tuned model. Start with any capable model and a conversation.
+
+**What's underneath:** The capability is already in the model. Current frontier models have been trained on more text about IT infrastructure than you could read in several lifetimes. What the model lacks is not knowledge; it is reach and eyes. And that changes what the on-ramp problem *is*. It is not "acquire machinery." It is "have the conversation and notice where it hits a wall," because the wall names the thing to build next, and nothing else does.
+
+My home-network case study followed this shape exactly. The initial diagnosis used nothing but the switch controller's and firewall's own native APIs, driven in conversation, with me approving each step. No custom tooling, no servers, no framework. The wall showed up on its own schedule: the fault was intermittent, and a conversation structurally has no eyes over time. That wall named the first tool (polling scripts that watch for days). Later walls named a skill (a procedure the model kept getting wrong) and memory (facts it kept re-deriving every session). Tool for a missing ability, skill for a missing procedure, memory for the rediscovery tax. If you build in that order, everything you own earned its place. If you build before the wall, you own machinery for gaps you never had.
+
+## 2. The dead corner carries the whole safety argument
+
+**What I said:** Map every setup on two axes: is a human in the loop, and is there machinery around the model. The corner nobody talks about is unattended-with-no-machinery, and it is empty: an unattended model with no harness does nothing at all. It is an idle API.
+
+**What's underneath:** If that corner is empty, then autonomy was never a property of the model. It is a property of the harness. Which relocates your entire risk budget: your exposure does not scale with how capable the model is, it scales with what you wired around it. A frontier model release does not change your risk posture. Your own configuration does.
+
+And that leads to the sharpest sentence I know on this subject: you cannot accidentally build autonomy, but you can accidentally enable it. If someone else built your harness, it ships with toggles. "Don't ask again for this command." Accept-edits mode. Long-lived background workflows. Each one moves part of the loop out of your hands. The autonomy line gets crossed in settings menus, not in model releases, and most people cross it without noticing they did.
+
+## 3. The whole machine is a menu, a transcript, and a stateless function
+
+**What I said:** I walked the audience through one real recorded diagnosis, arrow by arrow: user, harness, model, fabric. You can step through that exact walk yourself:
+
+<figure>
+  <iframe src="/bench/trace-walk-silent-drops.html" title="Anatomy of one agent run: an interactive trace walk" width="100%" height="720" loading="lazy" class="rounded-lg border border-zinc-700"></iframe>
+  <figcaption>The recorded run, step by step. Click inside once, then advance with the arrow keys, space, or the on-screen buttons. <a href="/bench/trace-walk-silent-drops.html" target="_blank" rel="noopener">Open it full screen</a> for the intended experience.</figcaption>
+</figure>
+
+**What's underneath:** Strip away every framework diagram and an agent is three things. The model is a stateless, probabilistic function: text in, text out. Strictly, the forward pass deterministically maps the transcript to a probability distribution over next tokens, and the reply you see is a sample from it, which is exactly why five rehearsals of the same diagnosis took five slightly different routes to the same conclusion. But it holds nothing, reaches nothing, and starts nothing on its own; statelessness is the part doing the work, and the stochastic part is why anything that must be reproducible belongs in code, which we will get to in point 5. The tools are a menu: names and descriptions that ride along as text in the context. And the loop is a transcript that grows: the model asks, the harness runs the errand and pastes the result, and the *entire* transcript goes back in for the next turn. In the run I walked through, the final turn was 486,286 tokens in, 1,747 tokens out. Five invocations, four tool calls, one growing transcript, correct root cause. That is the entire machine.
+
+This is also where MCP actually lives, since I got asked. MCP is how my harness fetches tool definitions from tool servers. By the time they reach the model, they are text on the menu. MCP standardizes the harness's side of the counter; the model's side is always just tokens. The model can ask. It cannot reach. Anyone who tells you the integration goes deeper than that is selling you the machinery from the myths slide.
+
+## 4. Visibility failures wear a confidence costume
+
+**What I said:** Same scenario, same model, and only what it could see changed. With two tools, the model produced a confident, detailed, wrong story about ECN thresholds. With three, it honestly said the evidence wasn't there. With four, it named the real fault.
+
+**What's underneath:** The wrong story cited real counters. The model did not fabricate data; it over-fit a coherent narrative to real but irrelevant signals, because the relevant signal was invisible from where it stood. That is not a hallucination problem, it is a visibility problem, and more capable models just confabulate more fluently. The scary version of this failure is not wrong; it is *plausible and wrong*, which is negative time-to-resolution, because now you are off tuning thresholds that were never broken.
+
+The underrated cell is the middle one. Half the tooling bought honesty before it bought answers: with a partial view, the model stopped inventing and said "I cannot tell." If you take one engineering question away from the whole talk, take this one: for each failure mode you care about, is there a path from your agent's tools to that failure's signature? We did not assume our tool surface was right; we measured which faults were invisible through it, and the measurement is what made the claim defensible.
+
+One more measurement worth its own paragraph: on the first injected run, the damaged fabric graded out 17% *faster* on every aggregate flow metric, because the four flows the fault killed never appeared in the dataset, and they had been the slowest. Averages lie when the casualties leave the dataset. That is why the tool surface includes completion accounting, and why yours should too.
+
+## 5. Spend the model at build time, not just run time
+
+This one lived between the slides, and a conversation after the webinar convinced me it deserves to be said plainly.
+
+The naive way to point AI at infrastructure data is to upload the raw evidence, the support bundle, the log archive, the counter dump, and ask the model to figure it out. That fails twice. It fails economically: megabytes of mostly irrelevant text, degraded attention, linear cost, and run-to-run variance. And it fails on trust: a fluent narrative over raw data is not a reproducible diagnosis, and you cannot audit vibes.
+
+The move that works inverts where the model's capability gets spent. Use the model where it is genuinely superhuman, at build time, writing the deterministic parser and detection code once. At run time, code detects, code distills, and the model reasons over kilobytes of cited evidence instead of megabytes of noise, narrating a decision that code already made. The model writes the tool; the tool runs forever. Detection stays attestable and versionable. Narration stays flexible and conversational. Same capture in, same classifications out, no matter which model explains them.
+
+If you read [When LLMs Should Plan, Not Execute](/writing/when-llms-should-plan-not-execute/) here in May, you have already met this argument's twin. That post kept the model off the critical execution path, for four reasons (non-determinism, speed, cost, and the success-probability math of chained steps), and put a deterministic orchestrator under a model-written plan. This is the same architecture arriving from the observability side: May kept the model's hands off the act path; this keeps its imagination off the detect path. The pattern is the same both times. The model works at the edges, planning, narrating, choosing the next observation, and deterministic code owns anything that has to be exactly right twice in a row.
+
+Two honest boundaries, because this move is load-bearing but it is not the whole game. Distillation tells you how to process the signals you chose, not whether you chose the right ones; a perfect deterministic pipeline over the wrong counters reproduces the confident-wrong failure with better hygiene. That is what the coverage question in point 4 is for. And the model's live judgment still matters: in the recorded run, the model's real contribution was not parsing anything, it was choosing the next observation when the switch counters came back clean. Distillation makes the evidence trustworthy; the model still drives the investigation across it.
+
+## 6. Nobody should ship an autonomous agent. Ship an autonomous action class.
+
+**What I said:** Step toward autonomy one action class at a time, through four gates: bounded, verifiable, rehearsed, governed.
+
+**What's underneath:** "The agent is autonomous" is a category error. Agents are not autonomous; specific actions are, one class at a time, after they earn it. Your candidate list is already in your approval history: the actions you have approved twenty times without editing are the shortlist, and mining that history is the realistic first step toward autonomous operation.
+
+The quiet radical among the gates is the second one. Verifiable means the harness can machine-check success or failure after acting, with no human interpreting, and it has to exist *before* autonomy, which is exactly the step most teams skip. An agent that cannot tell whether its fix worked is not autonomous. It is unsupervised.
+
+And the honest frontier, stated as narrowly as I can: fully autonomous infrastructure remediation is unproven, by me anyway, and I will not pretend otherwise. But the dial already turns a long way in software engineering, where I have had coding agents execute for hours against nothing but an intent and a set of tests that had to pass. That works because verification is cheap and the blast radius is a branch. Infrastructure is harder on both counts, and the four gates are precisely the bridge across that gap. Not a vibe, a checklist.
+
+## Where this leaves you
+
+Across a year of doing this for real, the operator kept winning. The harness earned its keep as an amplifier of the operator, not a replacement, and everything beyond that is still frontier. Which is the best possible news for getting started, because the starting corner costs nothing: a capable model, a shell, and a problem you already have. Start there today. Build only what the walls name. Put your safety budget where the autonomy actually lives, in the harness, and cross the unattended line one well-verified action class at a time.
+
+*The webinar recording and slides will appear in the [SNIA Educational Library](https://www.snia.org/educational-library); the June TechTalk, "Agentic Harnesses: Inside the Runtime," is in the same library if you want the anatomy in depth.*
