@@ -151,4 +151,21 @@
   .prose-provandal img {
     @apply rounded-lg my-8 border border-ink-700;
   }
+
+  /* Brass Tacks: original Typepad HTML rendered in the house prose style */
+  .brasstacks-original a:has(img) {
+    background-image: none;
+  }
+  .brasstacks-comment p {
+    @apply my-3;
+  }
+  .brasstacks-comment p:first-child {
+    @apply mt-0;
+  }
+  .brasstacks-comment p:last-child {
+    @apply mb-0;
+  }
+  .brasstacks-comment a {
+    @apply link-underline;
+  }
 }

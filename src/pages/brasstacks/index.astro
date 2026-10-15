@@ -1,0 +1,63 @@
+---
+import Base from '../../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+
+const posts = (await getCollection('brasstacks')).sort(
+  (a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf()
+);
+
+// pubDate is a calendar date; format in UTC so it never shifts a day.
+const fmt = (d: Date) =>
+  d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+const byYear = posts.reduce<Record<string, typeof posts>>((acc, post) => {
+  const y = post.data.pubDate.getUTCFullYear().toString();
+  (acc[y] ||= []).push(post);
+  return acc;
+}, {});
+const years = Object.keys(byYear).sort((a, b) => Number(b) - Number(a));
+---
+<Base title="BrassTacks — provandal" description="Posts from Brass Tacks, Erik Smith's blog on Typepad, recovered from the Internet Archive.">
+  <header class="pt-4 pb-12">
+    <p class="eyebrow mb-4">BrassTacks</p>
+    <h1 class="text-4xl md:text-5xl mb-6 text-balance font-normal">
+      Brass Tacks, recovered.
+    </h1>
+    <p class="text-ink-300 text-lg text-pretty leading-relaxed">
+      Brass Tacks was my blog on Typepad from 2010 to 2022. Typepad is gone,
+      so these posts were recovered from the Internet Archive and are
+      republished as they were originally posted: same text, same images,
+      same comments, original dates.
+    </p>
+  </header>
+
+  <div class="space-y-12">
+    {years.map((year) => (
+      <section>
+        <h2 class="font-mono text-sm text-ink-500 mb-6 pb-3 border-b rule tracking-wider">
+          {year}
+        </h2>
+        <ul class="divide-y divide-ink-700">
+          {byYear[year].map((post) => (
+            <li>
+              <a
+                href={`/brasstacks/${post.slug}/`}
+                class="group flex flex-col md:flex-row md:items-baseline md:gap-8 py-5 hover:bg-ink-800/40 -mx-4 px-4 transition-colors rounded"
+              >
+                <time class="font-mono text-xs text-ink-500 md:w-28 shrink-0">
+                  {fmt(post.data.pubDate)}
+                </time>
+                <div class="flex-1">
+                  <h3 class="font-display text-xl md:text-2xl text-ink-100 group-hover:text-signal transition-colors">
+                    {post.data.title}
+                  </h3>
+                  <p class="text-ink-400 text-sm mt-1 text-pretty line-clamp-2">{post.data.description}</p>
+                </div>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    ))}
+  </div>
+</Base>

@@ -1,0 +1,96 @@
+---
+import Base from '../../layouts/Base.astro';
+import { getCollection, type CollectionEntry } from 'astro:content';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('brasstacks');
+  return posts.map((post) => ({
+    params: { slug: post.slug },
+    props: { post },
+  }));
+}
+
+interface Props {
+  post: CollectionEntry<'brasstacks'>;
+}
+
+const { post } = Astro.props;
+const { Content } = await post.render();
+const { title, pubDate, postedAt, description, originalUrl, sources, pdf, comments } = post.data;
+
+// pubDate is a calendar date; format in UTC so it never shifts a day.
+const fmt = (d: Date) =>
+  d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+
+// Capture date from a Wayback URL: /web/20240805000615/... -> Aug 5, 2024
+const captured = (url: string) => {
+  const m = url.match(/\/web\/(\d{4})(\d{2})(\d{2})/);
+  return m
+    ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString('en-US', {
+        year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC',
+      })
+    : url;
+};
+---
+<Base title={`${title} — Brass Tacks — provandal`} description={description}>
+  <article>
+    <header class="pt-4 pb-8 mb-10 border-b rule">
+      <p class="eyebrow mb-4">
+        <a href="/brasstacks/" class="hover:text-ink-100">Brass Tacks</a>
+        <span class="text-ink-600"> · </span>{fmt(pubDate)}
+      </p>
+      <h1 class="text-4xl md:text-5xl mb-6 text-balance font-normal leading-[1.1]">
+        {title}
+      </h1>
+      <div class="font-mono text-xs text-ink-500 leading-relaxed space-y-1 [overflow-wrap:anywhere]">
+        <p>
+          Originally posted {fmt(pubDate)}{postedAt && ` at ${postedAt}`} on
+          <span class="text-ink-400">{new URL(originalUrl).host}{new URL(originalUrl).pathname}</span>
+        </p>
+        <p>
+          Recovered from the Internet Archive:
+          {sources.map((s, i) => (
+            <>
+              {i > 0 && '; '}
+              <a href={s.url} class="link-underline text-ink-400">{s.label.toLowerCase()}, captured {captured(s.url)}</a>
+            </>
+          ))}
+          {pdf && (
+            <>
+              {' · '}
+              <a href={pdf} class="link-underline text-ink-400">archived page (PDF)</a>
+            </>
+          )}
+        </p>
+      </div>
+    </header>
+
+    <div class="prose-provandal brasstacks-original">
+      <Content />
+    </div>
+
+    {comments.length > 0 && (
+      <section class="mt-16 pt-8 border-t rule" aria-labelledby="comments">
+        <h2 id="comments" class="eyebrow mb-8">Comments ({comments.length})</h2>
+        <ol class="space-y-8">
+          {comments.map((c) => (
+            <li class="border-l-2 border-ink-700 pl-5">
+              <p class="font-mono text-xs text-ink-500 mb-2">
+                <span class="text-ink-300">{c.author}</span>
+                <span class="text-ink-600"> · </span>{c.date}
+              </p>
+              <div class="brasstacks-comment text-ink-200 text-[15px] leading-relaxed" set:html={c.html} />
+            </li>
+          ))}
+        </ol>
+        <p class="mt-8 font-mono text-xs text-ink-500">The comments to this entry are closed.</p>
+      </section>
+    )}
+
+    <footer class="mt-16 pt-8 border-t rule">
+      <a href="/brasstacks/" class="font-mono text-sm link-underline text-ink-400">
+        &larr; all Brass Tacks
+      </a>
+    </footer>
+  </article>
+</Base>

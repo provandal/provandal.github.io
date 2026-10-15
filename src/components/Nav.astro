@@ -5,16 +5,17 @@ const is = (p: string) => path === p || (p !== '/' && path.startsWith(p));
 const links = [
   { href: '/projects/', label: 'Projects' },
   { href: '/writing/', label: 'Writing' },
+  { href: '/brasstacks/', label: 'BrassTacks' },
   { href: '/about/', label: 'About' },
 ];
 ---
-<header class="max-w-5xl mx-auto flex items-baseline justify-between py-8 border-b rule">
+<header class="max-w-5xl mx-auto flex flex-wrap items-baseline justify-between gap-x-6 gap-y-3 py-8 border-b rule">
   <a href="/" class="group inline-flex items-baseline gap-2">
     <span class="font-mono text-signal text-sm tracking-tighter">/</span>
     <span class="font-display text-xl text-ink-100 tracking-tightest">provandal</span>
     <span class="font-mono text-ink-600 text-xs hidden sm:inline">.dev</span>
   </a>
-  <nav class="flex items-baseline gap-6 md:gap-8 font-mono text-sm">
+  <nav class="flex items-baseline gap-5 sm:gap-6 md:gap-8 font-mono text-sm">
     {links.map((l) => (
       <a
         href={l.href}

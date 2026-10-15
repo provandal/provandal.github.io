@@ -27,6 +27,7 @@ The dev server runs at `http://localhost:4321`.
 src/
   content/
     writing/          # Blog posts as .mdx files (frontmatter + content)
+    brasstacks/       # Recovered Brass Tacks posts (generated, see below)
     projects.ts       # Project data, single source of truth
     config.ts         # Content collection schema
   layouts/
@@ -67,6 +68,30 @@ Post content in Markdown or MDX. Embed React components, HTML, whatever.
 
 Optional frontmatter fields: `updatedDate`, `draft` (set to `true` to hide
 it from the index and RSS while you work on it).
+
+## Adding a Brass Tacks post
+
+Brass Tacks (`/brasstacks/`) republishes posts from the old Typepad blog at
+`brasstacksblog.typepad.com/brass-tacks`, recovered from the Wayback
+Machine. Posts are imported, not written by hand:
+
+```bash
+# List the captures of a post and pick one (latest complete 200 is usually best)
+curl "https://web.archive.org/cdx/search/cdx?url=brasstacksblog.typepad.com/brass-tacks/2012/01/introducing-target-driven-zoning-tdz.html"
+
+# Import it; add --comments-page N:TS for each extra page of comments
+python -I scripts/brasstacks_import.py \
+  https://brasstacksblog.typepad.com/brass-tacks/2012/01/introducing-target-driven-zoning-tdz.html \
+  20240805000615 --comments-page 2:20220811140546 --render-pdf
+```
+
+The script writes `src/content/brasstacks/<slug>.md` (original HTML body,
+date, comments, Wayback sources) and `public/brasstacks/<slug>/` (images and
+an archival PDF of the page). Use `--pdf PATH` instead of `--render-pdf` to
+attach a PDF you saved yourself. `--render-pdf` needs Microsoft Edge plus
+the `websocket-client` and `pypdf` Python packages. Links between posts
+resolve to the local copy once both are imported, and to the Wayback
+Machine until then.
 
 ## Adding or editing a project
 
