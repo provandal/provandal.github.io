@@ -93,6 +93,13 @@ the `websocket-client` and `pypdf` Python packages. Links between posts
 resolve to the local copy once both are imported, and to the Wayback
 Machine until then.
 
+To import every post the archive has, picking the most complete capture of
+each automatically (posts already imported are skipped unless `--force`):
+
+```bash
+python -I scripts/brasstacks_import_all.py --render-pdf --report report.json
+```
+
 ## Adding or editing a project
 
 Edit `src/content/projects.ts`. The array order is the display order. The

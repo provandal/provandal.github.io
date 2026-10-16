@@ -33,6 +33,7 @@ Wayback link becomes a local link once its target post has been imported.
 
 import argparse
 import base64
+import hashlib
 import html
 import json
 import os
@@ -43,6 +44,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -53,8 +55,16 @@ PUBLIC_DIR = REPO / "public" / "brasstacks"
 BLOG_HOST = "brasstacksblog.typepad.com"
 POST_URL = r"https?://(?:www\.)?brasstacksblog\.typepad\.com(?::80)?/brass-tacks/(\d{4})/(\d{2})/([^/?#\"']+)\.html"
 POST_URL_RE = re.compile(POST_URL)
-# A link to a post, either direct or already wrapped in a Wayback URL.
-POST_LINK_RE = re.compile(r"(https://web\.archive\.org/web/\d+/)?" + POST_URL)
+# A whole link target that is a post, either direct or already wrapped in a
+# Wayback URL, with an optional #anchor.
+POST_LINK_RE = re.compile(r"(https://web\.archive\.org/web/\d+/)?" + POST_URL + r"(#[^\"]*)?")
+# Only attribute values are rewritten; a URL shown as text stays as written.
+ATTR_RE = re.compile(r'\b(href|src)="([^"]*)"')
+
+
+def rewrite_attrs(fragment, fn):
+    """Apply fn to every href/src value; fn returns the new value."""
+    return ATTR_RE.sub(lambda m: f'{m.group(1)}="{fn(m.group(2))}"', fragment)
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 
 
@@ -64,16 +74,51 @@ def wayback(ts, url, mode=""):
     return f"https://web.archive.org/web/{ts}{mode}/{url}"
 
 
-def fetch(url, tries=4):
+# Set to a directory to keep every Wayback response on disk, so a batch run
+# can be repeated without fetching the same captures again.
+CACHE_DIR = None
+
+# The Wayback Machine refuses connections for several minutes from clients
+# that request too quickly, so space requests out and back off hard when
+# refused.
+MIN_INTERVAL = 2.0
+_last_request = [0.0]
+
+
+def pace():
+    wait = _last_request[0] + MIN_INTERVAL - time.time()
+    if wait > 0:
+        time.sleep(wait)
+    _last_request[0] = time.time()
+
+
+def fetch(url, tries=5):
+    cached = None
+    if CACHE_DIR:
+        cached = Path(CACHE_DIR) / hashlib.sha1(url.encode()).hexdigest()
+        if cached.exists():
+            return cached.read_bytes()
     last = None
     for i in range(tries):
+        pace()
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "provandal-brasstacks-import/1.0"})
             with urllib.request.urlopen(req, timeout=120) as r:
-                return r.read()
-        except Exception as e:  # the Wayback Machine is flaky; back off and retry
+                data = r.read()
+            if cached:
+                cached.parent.mkdir(parents=True, exist_ok=True)
+                cached.write_bytes(data)
+            return data
+        except urllib.error.HTTPError as e:
+            if e.code == 404:  # not archived; retrying will not help
+                raise RuntimeError(f"not archived: {url}") from e
             last = e
-            time.sleep(3 * (i + 1))
+            delay = 60 * (i + 1) if e.code == 429 else 5 * (i + 1)
+        except Exception as e:  # refused (rate limited) or a transient error
+            last = e
+            delay = 60 * (i + 1)
+        print(f"  fetch retry in {delay}s: {last}")
+        time.sleep(delay)
     raise RuntimeError(f"fetch failed: {url}: {last}")
 
 
@@ -148,31 +193,73 @@ def clean_html(fragment):
 
 # ---------------------------------------------------------------- rewriting
 
-def localize_images(body, ts, slug):
-    """Download every image hosted on the blog and point the post at the copy."""
+def image_ext(data):
+    if data[:4] == b"\x89PNG":
+        return ".png"
+    if data[:3] == b"GIF":
+        return ".gif"
+    if data[:2] == b"\xff\xd8":
+        return ".jpg"
+    return None  # not an image: the archive served an error page
+
+
+def localize_images(body, ts, slug, missing):
+    """Download every image hosted on the blog and point the post at the
+    copy. Images the archive does not have keep a Wayback URL and are
+    appended to `missing`."""
     out_dir = PUBLIC_DIR / slug
-    out_dir.mkdir(parents=True, exist_ok=True)
     asset_re = re.compile(r"https?://(?:www\.)?brasstacksblog\.typepad\.com/\.a/([0-9a-f]+)-(?:pi|\d+wi|\d+si)")
     cache = {}
 
-    def local(asset_id):
+    def local(m):
+        asset_id = m.group(1)
         if asset_id not in cache:
             data = None
             for variant in ("pi", "800wi"):  # full size first
                 try:
                     data = fetch(wayback(ts, f"https://{BLOG_HOST}/.a/{asset_id}-{variant}", "im_"))
-                    break
                 except RuntimeError:
                     continue
+                if image_ext(data):
+                    break
+                data = None
             if data is None:
-                raise RuntimeError(f"image {asset_id} not in the archive")
-            ext = ".png" if data[:4] == b"\x89PNG" else ".gif" if data[:3] == b"GIF" else ".jpg"
-            (out_dir / f"{asset_id}{ext}").write_bytes(data)
-            cache[asset_id] = f"/brasstacks/{slug}/{asset_id}{ext}"
-            print(f"  image {asset_id}{ext} ({len(data)} bytes)")
+                missing.append(m.group(0))
+                cache[asset_id] = wayback(ts, m.group(0), "im_")
+            else:
+                out_dir.mkdir(parents=True, exist_ok=True)
+                name = asset_id + image_ext(data)
+                (out_dir / name).write_bytes(data)
+                cache[asset_id] = f"/brasstacks/{slug}/{name}"
+                print(f"  image {name} ({len(data)} bytes)")
         return cache[asset_id]
 
-    return asset_re.sub(lambda m: local(m.group(1)), body)
+    return rewrite_attrs(body, lambda value: local(m) if (m := asset_re.fullmatch(value)) else value)
+
+
+def cf_decode(hexstr):
+    """Cloudflare email obfuscation: the first byte is an XOR key for the rest."""
+    data = bytes.fromhex(hexstr)
+    return bytes(b ^ data[0] for b in data[1:]).decode("utf-8")
+
+
+def restore_emails(fragment):
+    """Undo the email obfuscation Typepad's CDN applied to late captures.
+    A bare address became <a href="/cdn-cgi/l/email-protection"
+    class="__cf_email__" data-cfemail="HEX">[email protected]</a>; a mailto
+    link became href="/cdn-cgi/l/email-protection#HEX"."""
+    fragment = re.sub(
+        r'<(?:a|span)[^>]*class="__cf_email__"[^>]*data-cfemail="([0-9a-f]+)"[^>]*>.*?</(?:a|span)>',
+        lambda m: html.escape(cf_decode(m.group(1))), fragment, flags=re.S)
+    return re.sub(r'(?:https?://[^"]*)?/cdn-cgi/l/email-protection#([0-9a-f]+)',
+                  lambda m: "mailto:" + cf_decode(m.group(1)), fragment)
+
+
+def link_other_blog_pages(fragment, ts):
+    """Any remaining link into the dead blog (archive and category pages)
+    goes to the Wayback Machine."""
+    blog = re.compile(r"https?://(?:www\.)?brasstacksblog\.typepad\.com\S*")
+    return rewrite_attrs(fragment, lambda value: wayback(ts, value) if blog.fullmatch(value) else value)
 
 
 def resolve_post_links(fragment, ts="2024"):
@@ -180,14 +267,17 @@ def resolve_post_links(fragment, ts="2024"):
     exists, otherwise at the Wayback Machine."""
     imported = {p.stem for p in CONTENT_DIR.glob("*.md")}
 
-    def target(m):
+    def target(value):
+        m = POST_LINK_RE.fullmatch(value)
+        if not m:
+            return value
         if m.group(4) in imported:
-            return f"/brasstacks/{m.group(4)}/"
+            return f"/brasstacks/{m.group(4)}/{m.group(5) or ''}"
         if m.group(1):
-            return m.group(0)
-        return wayback(ts, m.group(0))
+            return value
+        return wayback(ts, value)
 
-    return POST_LINK_RE.sub(target, fragment)
+    return rewrite_attrs(fragment, target)
 
 
 # ---------------------------------------------------------------- output
@@ -243,6 +333,50 @@ def relink_all():
 
 # ---------------------------------------------------------------- PDF
 
+PRINT_TRIES = 5
+
+# Resolves to the load state of an archived page. A rate-limited or
+# half-loaded page must never be printed: it would look like the original
+# but be missing its theme, banner, or images.
+PAGE_READY_JS = r"""(async () => {
+  const content = !!document.querySelector('.entry-body, #comments-content');
+  const styled = [...document.styleSheets].some(s => {
+    try { return /styles\.css/.test(s.href || '') && s.cssRules.length > 0; } catch (e) { return false; }
+  });
+  let banner = false;
+  for (const el of [document.getElementById('banner'), document.getElementById('banner-inner'), document.body]) {
+    const m = el && getComputedStyle(el).backgroundImage.match(/url\("?(.*?)"?\)/);
+    if (m) {
+      banner = await new Promise(ok => {
+        const img = new Image();
+        img.onload = () => ok(img.naturalWidth > 0);
+        img.onerror = () => ok(false);
+        img.src = m[1];
+      });
+      break;
+    }
+  }
+  const imgs = [...document.querySelectorAll('.entry-body img, .entry-more img')];
+  await Promise.all(imgs.map(i => i.complete ? null : new Promise(ok => { i.onload = i.onerror = ok; })));
+  const images = imgs.every(i => i.naturalWidth > 0);
+  return JSON.stringify({content, styled, banner, images});
+})()"""
+
+
+def pdf_looks_right(path):
+    """True when the first page shows the dark Brass Tacks banner, which
+    only renders when the archived page and its theme loaded."""
+    import fitz  # PyMuPDF
+    doc = fitz.open(path)
+    if "can't reach this page" in doc[0].get_text():
+        return False
+    pix = doc[0].get_pixmap(dpi=30)
+    ys = range(int(pix.height * 0.05), int(pix.height * 0.28), 2)
+    xs = range(int(pix.width * 0.1), int(pix.width * 0.9), 2)
+    dark = sum(1 for y in ys for x in xs if sum(pix.pixel(x, y)) < 150)
+    return dark / (len(ys) * len(xs)) > 0.4
+
+
 def print_pdf(urls, out_path):
     """Print archived pages to one PDF the way a desktop browser saves them:
     screen styles applied (the Typepad theme CSS is media="screen"), the
@@ -281,13 +415,29 @@ def print_pdf(urls, out_path):
                     return msg.get("result", {})
 
         call("Page.enable")
+        call("Network.enable")
+        # Scripts are not needed to print the page and are most of its
+        # requests; fewer requests keeps the archive from rate limiting us.
+        call("Network.setBlockedURLs", urls=["*.js", "*.js?*"])
         call("Emulation.setEmulatedMedia", media="screen")
         for i, url in enumerate(urls):
-            call("Page.navigate", url=url)
-            while json.loads(ws.recv()).get("method") != "Page.loadEventFired":
-                pass
-            time.sleep(4)  # late images and fonts
-            call("Runtime.evaluate", expression="""
+            for attempt in range(PRINT_TRIES):
+                if attempt:
+                    delay = 90 * attempt
+                    print(f"  page incomplete ({state}); reloading in {delay}s")
+                    time.sleep(delay)
+                pace()
+                call("Page.navigate", url=url)
+                while json.loads(ws.recv()).get("method") != "Page.loadEventFired":
+                    pass
+                time.sleep(3)  # late fonts
+                state = json.loads(call("Runtime.evaluate", expression=PAGE_READY_JS,
+                                        awaitPromise=True, returnByValue=True)["result"]["value"])
+                if state["content"] and state["styled"] and state["banner"] and state["images"]:
+                    break
+            else:
+                raise RuntimeError(f"archived page never loaded completely: {url} ({state})")
+            call("Runtime.evaluate", expression="""{
                 document.getElementById('wm-ipp-base')?.remove();
                 const p = document.getElementById('wm-ipp-print');
                 if (p) { p.style.display = 'block'; }
@@ -295,7 +445,7 @@ def print_pdf(urls, out_path):
                 // footer on the last sheet; a desktop print leaves it white.
                 document.documentElement.style.background = '#fff';
                 document.body.style.background = '#fff';
-            """)
+            }""")
             res = call("Page.printToPDF", printBackground=True, displayHeaderFooter=True,
                        paperWidth=8.5, paperHeight=11, marginTop=0.4, marginBottom=0.4,
                        marginLeft=0.4, marginRight=0.4)
@@ -313,9 +463,108 @@ def print_pdf(urls, out_path):
     with open(out_path, "wb") as f:
         writer.write(f)
     shutil.rmtree(profile, ignore_errors=True)
+    if not pdf_looks_right(out_path):
+        Path(out_path).unlink()
+        raise RuntimeError(f"rendered PDF failed the banner check: {urls[0]}")
 
 
 # ---------------------------------------------------------------- main
+
+def comment_key(c):
+    """Sort key for a comment's "MM/DD/YYYY at HH:MM AM" timestamp."""
+    try:
+        return time.strptime(c["date"], "%m/%d/%Y at %I:%M %p")
+    except ValueError:
+        return time.gmtime(0)
+
+
+def import_post(post_url, capture_ts, comment_pages=(), pdf=None, render_pdf=False, archive_dir=None):
+    """Import one post. comment_pages is a list of (page_number, capture_ts).
+    Returns a summary dict for reporting."""
+    m = POST_URL_RE.match(post_url)
+    if not m:
+        raise ValueError(f"not a Brass Tacks post URL: {post_url}")
+    original_url = f"https://{BLOG_HOST}/brass-tacks/{m.group(1)}/{m.group(2)}/{m.group(3)}.html"
+    slug = m.group(3)
+
+    print(f"fetching {slug} @ {capture_ts}")
+    doc = fetch(wayback(capture_ts, original_url, "id_")).decode("utf-8")
+    post = parse_post(doc)
+    page_urls = [wayback(capture_ts, original_url)]
+    sources = [("Post and first page of comments" if comment_pages else "Post and comments", page_urls[0])]
+
+    seen = {c["id"] for c in post["comments"]}
+    for n, ts in comment_pages:
+        page_url = original_url[: -len(".html")] + f"/comments/page/{n}/"
+        page = fetch(wayback(ts, page_url, "id_")).decode("utf-8")
+        extra = [c for c in parse_comments(page) if c["id"] not in seen]
+        seen.update(c["id"] for c in extra)
+        post["comments"] += extra
+        page_urls.append(wayback(ts, page_url))
+        sources.append((f"Comments page {n}", page_urls[-1]))
+        print(f"  comments page {n}: {len(extra)} comments")
+    post["comments"].sort(key=comment_key)  # stable: page order breaks ties
+
+    missing = []
+    def fix_links(fragment):
+        return link_other_blog_pages(resolve_post_links(fragment, capture_ts), capture_ts)
+
+    post["body"] = fix_links(localize_images(restore_emails(post["body"]), capture_ts, slug, missing))
+    for c in post["comments"]:
+        c["html"] = fix_links(restore_emails(c["html"]))
+
+    pdf_rel, pdf_error = None, None
+    if pdf or render_pdf:
+        (PUBLIC_DIR / slug).mkdir(parents=True, exist_ok=True)
+        pdf_path = PUBLIC_DIR / slug / f"{slug}.pdf"
+        try:
+            if pdf:
+                shutil.copyfile(pdf, pdf_path)
+            else:
+                print("  printing archived page(s) to PDF")
+                print_pdf(page_urls, pdf_path)
+            pdf_rel = f"/brasstacks/{slug}/{slug}.pdf"
+        except Exception as e:  # keep the post; the PDF can be re-rendered later
+            pdf_error = f"{type(e).__name__}: {e}"
+            print(f"  PDF FAILED: {pdf_error}")
+    elif (PUBLIC_DIR / slug / f"{slug}.pdf").exists():
+        pdf_rel = f"/brasstacks/{slug}/{slug}.pdf"  # re-import keeps the PDF already made
+        if pdf_rel and archive_dir:
+            safe = re.sub(r'[<>:"/\\|?*]', "", post["title"])
+            dest = Path(archive_dir) / f"{safe} - Brass Tacks.pdf"
+            if not dest.exists():
+                shutil.copyfile(pdf_path, dest)
+                print(f"  archived {dest}")
+
+    path = write_post(slug, post, original_url, sources, pdf_rel)
+    print(f"wrote {path.relative_to(REPO)}: {post['title']} ({post['pubDate']}), "
+          f"{len(post['comments'])} comments")
+    return {"slug": slug, "title": post["title"], "pubDate": post["pubDate"],
+            "comments": len(post["comments"]), "capture": capture_ts,
+            "comment_pages": [list(p) for p in comment_pages],
+            "missing_images": missing, "pdf": bool(pdf_rel),
+            **({"pdf_error": pdf_error} if pdf_error else {})}
+
+
+def render_post_pdf(slug, archive_dir=None):
+    """Re-render the archival PDF of an imported post from the captures
+    recorded in its frontmatter, leaving the post itself untouched."""
+    src = (CONTENT_DIR / f"{slug}.md").read_text(encoding="utf-8")
+    front = src.split("---\n", 2)[1]
+    urls = re.findall(r'^    url: "([^"]+)"', front, re.M)
+    title = json.loads(re.search(r"^title: (.*)$", front, re.M).group(1))
+    pdf_path = PUBLIC_DIR / slug / f"{slug}.pdf"
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"printing {slug}")
+    print_pdf(urls, pdf_path)
+    if "\npdf:" not in front:
+        body = src.split("---\n", 2)[2]
+        front = front.replace("\ncomments:", f'\npdf: "/brasstacks/{slug}/{slug}.pdf"\ncomments:', 1)
+        (CONTENT_DIR / f"{slug}.md").write_text(f"---\n{front}---\n{body}", encoding="utf-8", newline="\n")
+    if archive_dir:
+        safe = re.sub(r'[<>:"/\\|?*]', "", title)
+        shutil.copyfile(pdf_path, Path(archive_dir) / f"{safe} - Brass Tacks.pdf")
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -328,54 +577,10 @@ def main():
     ap.add_argument("--archive-dir", type=Path)
     args = ap.parse_args()
 
-    m = POST_URL_RE.match(args.post_url)
-    if not m:
-        sys.exit(f"not a Brass Tacks post URL: {args.post_url}")
-    original_url = f"https://{BLOG_HOST}/brass-tacks/{m.group(1)}/{m.group(2)}/{m.group(3)}.html"
-    slug = m.group(3)
-
-    print(f"fetching {slug} @ {args.capture_ts}")
-    doc = fetch(wayback(args.capture_ts, original_url, "id_")).decode("utf-8")
-    post = parse_post(doc)
-    page_urls = [wayback(args.capture_ts, original_url)]
-    sources = [("Post and first page of comments", page_urls[0])]
-
-    seen = {c["id"] for c in post["comments"]}
-    for spec in args.comments_page:
-        n, ts = spec.split(":")
-        page_url = original_url[: -len(".html")] + f"/comments/page/{n}/"
-        page = fetch(wayback(ts, page_url, "id_")).decode("utf-8")
-        extra = [c for c in parse_comments(page) if c["id"] not in seen]
-        seen.update(c["id"] for c in extra)
-        post["comments"] += extra
-        page_urls.append(wayback(ts, page_url))
-        sources.append((f"Comments page {n}", page_urls[-1]))
-        print(f"  comments page {n}: {len(extra)} comments")
-
-    post["body"] = resolve_post_links(localize_images(post["body"], args.capture_ts, slug), args.capture_ts)
-    for c in post["comments"]:
-        c["html"] = resolve_post_links(c["html"], args.capture_ts)
-
-    pdf_rel = None
-    if args.pdf or args.render_pdf:
-        (PUBLIC_DIR / slug).mkdir(parents=True, exist_ok=True)
-        pdf_path = PUBLIC_DIR / slug / f"{slug}.pdf"
-        if args.pdf:
-            shutil.copyfile(args.pdf, pdf_path)
-        else:
-            print("  printing archived page(s) to PDF")
-            print_pdf(page_urls, pdf_path)
-        pdf_rel = f"/brasstacks/{slug}/{slug}.pdf"
-        if args.archive_dir:
-            safe = re.sub(r'[<>:"/\\|?*]', "", post["title"])
-            dest = args.archive_dir / f"{safe} - Brass Tacks.pdf"
-            if not dest.exists():
-                shutil.copyfile(pdf_path, dest)
-                print(f"  archived {dest}")
-
-    path = write_post(slug, post, original_url, sources, pdf_rel)
-    print(f"wrote {path.relative_to(REPO)}: {post['title']} ({post['pubDate']}), "
-          f"{len(post['comments'])} comments")
+    pages = [tuple(spec.split(":")) for spec in args.comments_page]
+    summary = import_post(args.post_url, args.capture_ts, pages, args.pdf, args.render_pdf, args.archive_dir)
+    for url in summary["missing_images"]:
+        print(f"  WARNING image not in the archive: {url}")
     relink_all()
 
 

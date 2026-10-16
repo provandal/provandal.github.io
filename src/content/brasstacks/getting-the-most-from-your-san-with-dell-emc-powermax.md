@@ -1,0 +1,25 @@
+---
+title: "Getting the most from your SAN with Dell EMC PowerMax"
+pubDate: 2020-08-03
+postedAt: "11:24 AM"
+description: "PowerMax Feature Prevents Congestion Spreading The big news in our new white paper is data that proves how a new PowerMax feature namely, initiator bandwidth limits, will allow you to prevent congestion spreading due to oversubscription from happening, even when you need to access your 32G storage from a 4G..."
+originalUrl: "https://brasstacksblog.typepad.com/brass-tacks/2020/08/getting-the-most-from-your-san-with-dell-emc-powermax.html"
+sources:
+  - label: "Post and comments"
+    url: "https://web.archive.org/web/20250911095250/https://brasstacksblog.typepad.com/brass-tacks/2020/08/getting-the-most-from-your-san-with-dell-emc-powermax.html"
+pdf: "/brasstacks/getting-the-most-from-your-san-with-dell-emc-powermax/getting-the-most-from-your-san-with-dell-emc-powermax.pdf"
+comments: []
+---
+
+<p><strong>PowerMax Feature Prevents Congestion Spreading</strong><strong>&#0160; </strong></p>
+<p>The big news in our new white paper is data that proves how a new PowerMax feature namely, initiator bandwidth limits, will allow you to prevent congestion spreading due to oversubscription from happening, even when you need to access your 32G storage from a 4G host.&#0160; We believe this feature is an industry first and it allows you to take full advantage of your 32G storage port bandwidth without needing to worry about congestion spreading due to oversubscription.&#0160;</p>
+<p><strong>Dealing with SAN Congestion - How did we get here?</strong></p>
+<p>A few years ago, a large Dell EMC customer approached us with a problem that appeared to be related to a SAN performance problem known as “<a href="/brasstacks/slow-drains-are-impacting-your-san/">slow drain</a>”.&#0160; As we investigated, it became apparent that we were dealing with a much larger issue; a problem that would eventually become known as “<a href="/brasstacks/slow-drain-due-to-bandwidth-mismatch-and-large-block-reads/">Congestion Spreading due to bandwidth mismatch</a>”.&#0160; The key takeaway from our investigation was:</p>
+<p><strong>Any time a Host is attached to the SAN at a speed that is slower than the storage it accesses (e.g., a 4G FC HBA accessing 8G storage, 10G FCoE CNA accessing 16G storage, etc), the Host will start behaving as a</strong><strong>&#0160;</strong><a href="https://support.emc.com/kb/464206">mild slow drain</a><strong>&#0160;</strong><strong>and cause</strong><strong>&#0160;</strong><a href="/brasstacks/slow-drains-are-impacting-your-san/">congestion spreading</a> <strong>if it uses large block READs.</strong></p>
+<p>Further complicating matters, predicting which hosts would end up using large block reads proved to be impractical.&#0160; As it turns out, this behavior is driven by the users of the applications running on each host.&#0160; As a result, we realized we were dealing with an unpredictable behavior that could impact the performance of an entire SAN.</p>
+<p>After the implications of this performance issue started to sink in, we immediately reached out to our switch partners to start working on solutions.&#0160; We eventually settled on a 3-pronged strategy focused on <a href="https://www.dellemc.com/resources/en-us/asset/white-papers/products/networking/h17762-connectrix-congestion-spreading-and-how-to-avoid-it-wp.pdf">Detection, Prevention and Remediation</a>.</p>
+<p><strong>What does all of this have to do with 32G storage?</strong></p>
+<p>Well, to avoid the congestion spreading issue I described above, rather than just adding your 32G storage ports to an existing 8G or 16G SAN, you would ideally upgrade the entire SAN infrastructure to 32G.&#0160; The problem is, for most customers this kind of fork-lift upgrade would be too disruptive and cost prohibitive.&#0160;</p>
+<p>Now, this isn’t to say that upgrading a portion of your SAN to 32G is non-essential, you’ll of course want to connect your 32G Storage ports to 32G SAN switches.&#0160; But beyond this, determining what other parts of your infrastructure will need to be upgraded can be a bit daunting.&#0160; With this in mind, we wanted to make sure that we provided our customers with the information they needed to upgrade exactly what they needed to upgrade and nothing more.&#0160; To this end, the Customer Solution Center (CSC) and Connectrix teams decided to collaborate on a new white paper “<a href="https://www.dellemc.com/resources/en-us/asset/white-papers/products/storage/h18140-getting-most-out-of-32gfc-storage.pdf">Getting the most out of your 32G storage</a>”.&#0160; In it, we explore several different topologies and provide actual test results to demonstrate the impact of upgrading different parts of SAN to 32G.&#0160; From this work we were able to define a spectrum of different solutions that will help our customers to better understand the cost and benefit of the different options that are available to them.&#0160;</p>
+<p>Download the whitepaper today!&#0160;</p>
+<p>https://www.dellemc.com/resources/en-us/asset/white-papers/products/storage/h18140-getting-most-out-of-32gfc-storage.pdf</p>

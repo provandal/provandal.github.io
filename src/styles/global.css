@@ -153,9 +153,41 @@
   }
 
   /* Brass Tacks: original Typepad HTML rendered in the house prose style */
+  .brasstacks-original,
+  .brasstacks-comment {
+    /* Long URLs written out as link text must not widen the page on phones */
+    overflow-wrap: anywhere;
+  }
   .brasstacks-original a:has(img) {
     background-image: none;
   }
+  /* Headings inside a post sit below the page title */
+  .brasstacks-original h1 {
+    @apply text-3xl mt-16 mb-4 font-normal;
+  }
+  .brasstacks-original h4 {
+    @apply text-lg mt-8 mb-2 font-medium text-ink-100 font-sans;
+  }
+  .brasstacks-original table {
+    @apply block overflow-x-auto my-6 text-[15px];
+    border-collapse: collapse;
+  }
+  .brasstacks-original td,
+  .brasstacks-original th {
+    @apply border border-ink-700 px-3 py-2 align-top;
+    /* The table scrolls sideways instead; breaking words would shrink columns */
+    overflow-wrap: normal;
+  }
+  .brasstacks-original td p,
+  .brasstacks-original th p {
+    @apply my-0;
+  }
+  /* The original text colors were chosen for a white page. Keep each hue
+     but lift it to a shade that reads on the dark background. */
+  :is(.brasstacks-original, .brasstacks-comment) [style*="#0000bf" i] { color: #8fb0ff !important; }
+  :is(.brasstacks-original, .brasstacks-comment) [style*="#0060bf" i] { color: #7fb8e8 !important; }
+  :is(.brasstacks-original, .brasstacks-comment) [style*="#434343" i] { color: theme('colors.ink.400') !important; }
+  :is(.brasstacks-original, .brasstacks-comment) [style*="#bf00bf" i] { color: #e08ae0 !important; }
   .brasstacks-comment p {
     @apply my-3;
   }
